@@ -130,6 +130,7 @@ app.post('/api/game/auto-pause', auth.verifyMiddleware, statusAPI.setAutoPause);
 const modsAPI = require('./api/mods');
 app.get('/api/mods', auth.verifyMiddleware, modsAPI.getMods);
 app.get('/api/mods/client-pack', auth.verifyMiddleware, modsAPI.downloadClientPack);
+app.get('/api/mods/download/:folder', auth.verifyMiddleware, modsAPI.downloadMod);
 app.post('/api/mods/upload', auth.verifyMiddleware, modsAPI.uploadMod);
 app.delete('/api/mods/:folder', auth.verifyMiddleware, modsAPI.deleteMod);
 

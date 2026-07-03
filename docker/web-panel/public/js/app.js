@@ -134,7 +134,7 @@ const translations = {
     'config.password': '修改面板密码', 'config.currentPassword': '当前密码', 'config.newPassword': '新密码',
     'config.update': '更新', 'config.saveChanges': '保存更改', 'mods.title': '已安装模组', 'mods.none': '未找到模组',
     'mods.custom': '自定义', 'mods.builtin': '内置',
-    'mods.upload': '上传模组', 'mods.delete': '删除', 'mods.confirmDelete': '确定要删除模组 {name} 吗？',
+    'mods.upload': '上传模组', 'mods.download': '下载', 'mods.delete': '删除', 'mods.confirmDelete': '确定要删除模组 {name} 吗？',
     'mods.uploadHint': '选择 .zip 模组文件', 'mods.uploading': '上传中...',
     'mods.uploadInstalled': '模组已上传并安装到游戏目录。重启服务器后会加载新模组。',
     'mods.uploadNoManifest': '模组压缩包已上传，但未找到 manifest.json，请检查压缩包结构。',
@@ -152,6 +152,8 @@ const translations = {
     'mods.clientPackBuildFail': '玩家下载包自动整理失败：{reason}',
     'toast.modUploadOk': '模组上传成功！重启服务器后生效。', 'toast.modUploadFail': '模组上传失败',
     'toast.modDeleteOk': '模组已删除', 'toast.modDeleteFail': '模组删除失败',
+    'toast.modDownloadOk': '模组下载已开始。',
+    'toast.modDownloadFail': '模组下载失败',
     'toast.modClientPackOk': '玩家 Mod 包已开始下载。',
     'toast.modClientPackFail': '玩家 Mod 包下载失败',
     'config.group.Steam': 'Steam 设置', 'config.group.VNC': 'VNC 设置',
@@ -274,7 +276,7 @@ const translations = {
     'config.password': 'Change Panel Password', 'config.currentPassword': 'Current password', 'config.newPassword': 'New password',
     'config.update': 'Update', 'config.saveChanges': 'Save Changes', 'mods.title': 'Installed Mods', 'mods.none': 'No mods found',
     'mods.custom': 'Custom', 'mods.builtin': 'Built-in',
-    'mods.upload': 'Upload Mod', 'mods.delete': 'Delete', 'mods.confirmDelete': 'Are you sure you want to delete mod {name}?',
+    'mods.upload': 'Upload Mod', 'mods.download': 'Download', 'mods.delete': 'Delete', 'mods.confirmDelete': 'Are you sure you want to delete mod {name}?',
     'mods.uploadHint': 'Select a .zip mod file', 'mods.uploading': 'Uploading...',
     'mods.uploadInstalled': 'Mod uploaded and installed into the game Mods directory. Restart the server to load it.',
     'mods.uploadNoManifest': 'Mod archive uploaded, but no manifest.json was found. Check the archive structure.',
@@ -292,6 +294,8 @@ const translations = {
     'mods.clientPackBuildFail': 'Client mod pack rebuild failed: {reason}',
     'toast.modUploadOk': 'Mod uploaded! Restart server to apply.', 'toast.modUploadFail': 'Mod upload failed',
     'toast.modDeleteOk': 'Mod deleted', 'toast.modDeleteFail': 'Mod delete failed',
+    'toast.modDownloadOk': 'Mod download started.',
+    'toast.modDownloadFail': 'Mod download failed',
     'toast.modClientPackOk': 'Client mod pack download started.',
     'toast.modClientPackFail': 'Client mod pack download failed',
     'config.group.Steam': 'Steam', 'config.group.VNC': 'VNC',
@@ -1570,6 +1574,9 @@ async function loadMods() {
   }
 
   list.innerHTML = uploadHtml + data.mods.map(function(m) {
+    var downloadBtn = m.isCustom
+      ? '<button class="btn btn-sm btn-muted mod-download-btn" type="button" data-folder="' + escapeHtml(m.folder) + '" data-name="' + escapeHtml(m.name) + '">' + icon('download', 'icon') + ' <span>' + t('mods.download') + '</span></button>'
+      : '';
     var deleteBtn = m.isCustom
       ? '<button class="btn btn-sm btn-danger-outline mod-delete-btn" data-folder="' + escapeHtml(m.folder) + '" data-name="' + escapeHtml(m.name) + '">' + icon('trash', 'icon') + ' <span>' + t('mods.delete') + '</span></button>'
       : '';
@@ -1585,10 +1592,17 @@ async function loadMods() {
       '<div class="mod-actions">' +
         '<span class="mod-badge ' + (m.isCustom ? 'custom' : '') + '">' + (m.isCustom ? t('mods.custom') : t('mods.builtin')) + '</span>' +
         clientBadge +
+        downloadBtn +
         deleteBtn +
       '</div>' +
     '</div>';
   }).join('');
+
+  list.querySelectorAll('.mod-download-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      downloadMod(btn.dataset.folder, btn.dataset.name);
+    });
+  });
 
   list.querySelectorAll('.mod-delete-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
@@ -1644,6 +1658,16 @@ async function deleteMod(folder, name) {
   } else {
     showToast(formatApiError(data, t('toast.modDeleteFail')), 'error', 7000);
   }
+}
+
+async function downloadMod(folder, name) {
+  var data = await API.download('/api/mods/download/' + encodeURIComponent(folder));
+  if (data && data.success) {
+    showToast(t('toast.modDownloadOk'), 'success');
+    return;
+  }
+
+  showToast(formatApiError(data, t('toast.modDownloadFail')), 'error', 7000);
 }
 
 async function downloadClientModPack() {

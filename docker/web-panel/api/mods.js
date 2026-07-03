@@ -167,6 +167,13 @@ function loadAllMetadata() {
     .filter(Boolean);
 }
 
+function getMatchingMetadata(folder) {
+  return loadAllMetadata().filter(entry =>
+    entry.filename === `${folder}.zip` ||
+    (Array.isArray(entry.installedFolders) && entry.installedFolders.includes(folder))
+  );
+}
+
 function findManifestDirectories(rootDir, maxDepth = 3, depth = 0) {
   if (depth > maxDepth || !fs.existsSync(rootDir)) {
     return [];
@@ -216,6 +223,104 @@ function installArchiveToGameMods(zipPath) {
     };
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function resolveChildPath(rootDir, childName) {
+  const root = path.resolve(rootDir);
+  const target = path.resolve(rootDir, childName);
+  if (!target.startsWith(root + path.sep)) {
+    throw new AppError('Invalid mod path', {
+      status: 400,
+      code: 'MOD_INVALID_PATH',
+      cause: 'The requested mod path is outside the allowed mod directory.',
+      action: 'Refresh the Mods page and try again.',
+    });
+  }
+
+  return target;
+}
+
+function getModDownloadSource(folder) {
+  const safeFolder = path.basename(folder || '');
+  if (!safeFolder) {
+    throw new AppError('Mod folder name is required', {
+      status: 400,
+      code: 'MOD_FOLDER_REQUIRED',
+      cause: 'The download request did not include a mod folder.',
+      action: 'Download a mod from the Installed Mods list.',
+    });
+  }
+
+  const preinstalledFolders = getPreinstalledModFolders();
+  if (preinstalledFolders.has(safeFolder)) {
+    throw new AppError('Built-in mods cannot be downloaded individually', {
+      status: 403,
+      code: 'BUILT_IN_MOD_PROTECTED',
+      cause: 'The selected mod is part of the preinstalled server mod stack.',
+      action: 'Use the player mod pack for client-required mods, or download only uploaded custom mods.',
+    });
+  }
+
+  const metadataEntries = getMatchingMetadata(safeFolder);
+  const archiveNames = [
+    ...metadataEntries.map(entry => path.basename(entry.filename || '')),
+    `${safeFolder}.zip`,
+  ].filter(Boolean);
+
+  for (const archiveName of archiveNames) {
+    const archivePath = resolveChildPath(CUSTOM_MODS_DIR, archiveName);
+    if (fs.existsSync(archivePath) && fs.statSync(archivePath).isFile()) {
+      return {
+        type: 'file',
+        path: archivePath,
+        filename: archiveName,
+        folder: safeFolder,
+      };
+    }
+  }
+
+  const customDir = resolveChildPath(CUSTOM_MODS_DIR, safeFolder);
+  if (fs.existsSync(customDir) && fs.statSync(customDir).isDirectory()) {
+    return {
+      type: 'directory',
+      root: CUSTOM_MODS_DIR,
+      folder: safeFolder,
+      filename: `${safeFolder}.zip`,
+    };
+  }
+
+  const gameDir = resolveChildPath(GAME_MODS_DIR, safeFolder);
+  if (fs.existsSync(gameDir) && fs.statSync(gameDir).isDirectory()) {
+    return {
+      type: 'directory',
+      root: GAME_MODS_DIR,
+      folder: safeFolder,
+      filename: `${safeFolder}.zip`,
+    };
+  }
+
+  throw new AppError('Custom mod not found', {
+    status: 404,
+    code: 'CUSTOM_MOD_NOT_FOUND',
+    cause: 'The selected uploaded mod no longer exists on disk.',
+    action: 'Refresh the Mods page and try again.',
+  });
+}
+
+function createTemporaryModArchive(source) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'puppy-mod-download-'));
+  const zipPath = path.join(tempDir, source.filename);
+
+  try {
+    runCommand('zip', ['-qr', zipPath, `./${source.folder}`], {
+      cwd: source.root,
+      timeout: 180000,
+    });
+    return { zipPath, tempDir };
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -294,6 +399,69 @@ function getMods(req, res) {
   } catch (e) {}
 
   res.json({ mods, total: mods.length, clientPack: getClientPackStatus() });
+}
+
+/**
+ * GET /api/mods/download/:folder
+ * Download one uploaded/custom mod archive.
+ */
+function downloadMod(req, res) {
+  let source;
+  try {
+    source = getModDownloadSource(req.params.folder);
+  } catch (error) {
+    return sendError(res, req, error, {
+      status: error.status || 500,
+      code: error.code || 'MOD_DOWNLOAD_LOOKUP_FAILED',
+      message: 'Failed to find mod download',
+      cause: error.cause || 'The panel could not find the selected uploaded mod.',
+      details: error.details || error.message,
+      action: error.action || 'Refresh the Mods page and try again.',
+    });
+  }
+
+  if (source.type === 'file') {
+    return res.download(source.path, source.filename, (error) => {
+      if (error && !res.headersSent) {
+        return sendError(res, req, error, {
+          status: 500,
+          code: 'MOD_DOWNLOAD_FAILED',
+          message: 'Failed to download mod',
+          cause: 'The mod archive exists, but the panel could not send it to the browser.',
+          details: error.message,
+          action: 'Retry the download and check panel logs if it fails again.',
+        });
+      }
+    });
+  }
+
+  let tempArchive;
+  try {
+    tempArchive = createTemporaryModArchive(source);
+  } catch (error) {
+    return sendError(res, req, error, {
+      status: 500,
+      code: 'MOD_ARCHIVE_CREATE_FAILED',
+      message: 'Failed to package mod',
+      cause: error.cause || 'The selected mod exists as a folder, but the panel could not create a zip download.',
+      details: error.details || error.message,
+      action: error.action || 'Rebuild the Docker image so the zip command is available, then retry.',
+    });
+  }
+
+  return res.download(tempArchive.zipPath, source.filename, (error) => {
+    fs.rmSync(tempArchive.tempDir, { recursive: true, force: true });
+    if (error && !res.headersSent) {
+      return sendError(res, req, error, {
+        status: 500,
+        code: 'MOD_DOWNLOAD_FAILED',
+        message: 'Failed to download mod',
+        cause: 'The temporary mod archive was created, but the panel could not send it to the browser.',
+        details: error.message,
+        action: 'Retry the download and check panel logs if it fails again.',
+      });
+    }
+  });
 }
 
 function getClientPackEntries() {
@@ -705,11 +873,7 @@ function deleteMod(req, res) {
     }));
   }
 
-  const metadataEntries = loadAllMetadata();
-  const matchingMetadata = metadataEntries.filter(entry =>
-    entry.filename === `${folder}.zip` ||
-    (Array.isArray(entry.installedFolders) && entry.installedFolders.includes(folder))
-  );
+  const matchingMetadata = getMatchingMetadata(folder);
 
   const sourcePaths = new Set([
     path.join(CUSTOM_MODS_DIR, folder),
@@ -759,4 +923,4 @@ function deleteMod(req, res) {
   }
 }
 
-module.exports = { getMods, uploadMod, deleteMod, downloadClientPack };
+module.exports = { getMods, uploadMod, deleteMod, downloadClientPack, downloadMod };
