@@ -399,7 +399,12 @@
                 <svg class="icon"><use href="#icon-saves"></use></svg>
                 <span data-i18n="dash.backup">Backup Now</span>
               </button>
+              <button class="btn btn-warning" id="manualPauseBtn" type="button" onclick="toggleManualPause()" disabled>
+                <svg class="icon"><use href="#icon-clock"></use></svg>
+                <span id="manualPauseBtnText" data-i18n="dash.pauseTime">Pause Time</span>
+              </button>
             </div>
+            <div id="manualPauseNote" class="manual-pause-note" data-i18n="dash.pauseHint">Manual pause freezes in-game time for all connected players until you resume it.</div>
             <div id="dashboardBackupStatus" class="backup-status" style="display:none"></div>
           </div>
         </section>

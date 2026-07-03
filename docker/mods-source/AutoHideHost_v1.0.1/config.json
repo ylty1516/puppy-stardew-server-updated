@@ -8,5 +8,7 @@
   "WarpLocation": "Desert",
   "WarpX": 0,
   "WarpY": 0,
-  "DebugMode": true
+  "DebugMode": true,
+  "ManualPauseFile": "/home/steam/web-panel/data/manual-pause.json",
+  "ManualPausePollTicks": 60
 }

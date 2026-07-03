@@ -399,6 +399,17 @@ body {
 
 .action-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
 
+.manual-pause-note {
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.manual-pause-note.active {
+  color: var(--accent-warn);
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;

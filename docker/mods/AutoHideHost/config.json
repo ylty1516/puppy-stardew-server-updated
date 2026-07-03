@@ -12,5 +12,7 @@
   "PreventHostFarmWarp": true,
   "PeerConnectGuardSeconds": 60,
   "RehideDelayTicks": 1,
-  "DebugTraceMenus": false
+  "DebugTraceMenus": false,
+  "ManualPauseFile": "/home/steam/web-panel/data/manual-pause.json",
+  "ManualPausePollTicks": 60
 }

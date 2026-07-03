@@ -323,6 +323,25 @@ body::after {
   background: linear-gradient(180deg, #ffe08c, #d9922d);
 }
 
+#manualPauseBtn.manual-pause-active {
+  color: #fff5df;
+  background: linear-gradient(180deg, #e65a45, #a83c31);
+}
+
+.manual-pause-note {
+  border-left: 3px solid rgba(122, 74, 37, 0.42);
+  padding-left: 10px;
+}
+
+.manual-pause-note.active {
+  border-left-color: var(--accent-warn);
+  color: #ffd36a;
+}
+
+:root[data-theme='light'] .manual-pause-note.active {
+  color: #8a4d1f;
+}
+
 .btn-danger {
   color: #fff5df;
   background: linear-gradient(180deg, #e65a45, #a83c31);

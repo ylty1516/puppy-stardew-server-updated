@@ -141,6 +141,65 @@ function getNetworkInfo(requestHost = '') {
   };
 }
 
+function readManualPauseState() {
+  const emptyState = {
+    enabled: false,
+    updatedAt: '',
+    updatedBy: '',
+    reason: '',
+    file: config.MANUAL_PAUSE_FILE,
+  };
+
+  try {
+    if (!config.MANUAL_PAUSE_FILE || !fs.existsSync(config.MANUAL_PAUSE_FILE)) {
+      return emptyState;
+    }
+
+    const data = JSON.parse(fs.readFileSync(config.MANUAL_PAUSE_FILE, 'utf-8'));
+    return {
+      ...emptyState,
+      enabled: data.enabled === true,
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
+      updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : '',
+      reason: typeof data.reason === 'string' ? data.reason : '',
+    };
+  } catch (error) {
+    return {
+      ...emptyState,
+      error: error.message,
+    };
+  }
+}
+
+function writeManualPauseState(enabled, reason = '') {
+  if (!config.MANUAL_PAUSE_FILE) {
+    throw new AppError('Manual pause state path is not configured', {
+      status: 500,
+      code: 'MANUAL_PAUSE_NOT_CONFIGURED',
+      cause: 'MANUAL_PAUSE_FILE is empty, so the panel cannot write the pause control file.',
+      action: 'Set MANUAL_PAUSE_FILE or use the default container path.',
+    });
+  }
+
+  const state = {
+    enabled: enabled === true,
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'web-panel',
+    reason: String(reason || '').slice(0, 240),
+  };
+
+  const dir = require('path').dirname(config.MANUAL_PAUSE_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = `${config.MANUAL_PAUSE_FILE}.tmp-${process.pid}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+  fs.renameSync(tmpPath, config.MANUAL_PAUSE_FILE);
+
+  return {
+    ...state,
+    file: config.MANUAL_PAUSE_FILE,
+  };
+}
+
 function collectStatus(req = null) {
   const now = Date.now();
   if (cachedStatus && now - cacheTime < CACHE_TTL) {
@@ -163,6 +222,7 @@ function collectStatus(req = null) {
     version: 'v1.1.0',
     scriptsHealthy: false,
     paused: false,
+    manualPause: readManualPauseState(),
     events: {
       passout: 0,
       readycheck: 0,
@@ -256,6 +316,10 @@ function collectStatus(req = null) {
     status.players.online = hints.players;
   }
   if (hints.paused) {
+    status.paused = true;
+  }
+
+  if (status.manualPause.enabled) {
     status.paused = true;
   }
 
@@ -419,6 +483,40 @@ function restartContainer(req, res) {
   }
 }
 
+function getManualPause(req, res) {
+  res.json(readManualPauseState());
+}
+
+function setManualPause(req, res) {
+  try {
+    if (!req.body || typeof req.body.enabled !== 'boolean') {
+      return sendError(res, req, new AppError('Invalid manual pause request', {
+        status: 400,
+        code: 'INVALID_MANUAL_PAUSE_REQUEST',
+        cause: 'The request must include a boolean "enabled" field.',
+        action: 'Refresh the panel and use the Pause Time button again.',
+      }));
+    }
+
+    const state = writeManualPauseState(req.body.enabled, req.body.reason || '');
+    cachedStatus = null;
+    res.json({
+      success: true,
+      manualPause: state,
+      message: state.enabled ? 'Manual game-time pause enabled' : 'Manual game-time pause disabled',
+    });
+  } catch (e) {
+    return sendError(res, req, e, {
+      status: 500,
+      code: 'MANUAL_PAUSE_UPDATE_FAILED',
+      message: 'Failed to update manual pause state',
+      cause: 'The panel could not write the manual pause control file.',
+      details: e.message,
+      action: 'Check web panel data permissions and container volume access.',
+    });
+  }
+}
+
 function scheduleContainerRecreate(managerUrl) {
   return new Promise((resolve, reject) => {
     let parsed;
@@ -474,4 +572,11 @@ function scheduleContainerRecreate(managerUrl) {
   });
 }
 
-module.exports = { getStatus, subscribeStatus, restartServer, restartContainer };
+module.exports = {
+  getStatus,
+  subscribeStatus,
+  restartServer,
+  restartContainer,
+  getManualPause,
+  setManualPause,
+};

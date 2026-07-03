@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
@@ -34,6 +36,8 @@ namespace AutoHideHost
         private string lastSkippedEventId = null;  // 上次跳过的事件ID
         private DateTime? lastSkipTime = null;  // 上次跳过时间
         private int skipCooldownSeconds = 5;  // 跳过冷却时间（秒）
+        private bool manualPauseApplied = false;
+        private bool manualPauseLastRequested = false;
 
         public override void Entry(IModHelper helper)
         {
@@ -266,6 +270,11 @@ namespace AutoHideHost
             if (!Config.Enabled || !Context.IsMainPlayer)
                 return;
 
+            if (e.Ticks % Math.Max(15, Config.ManualPausePollTicks) == 0)
+            {
+                ApplyManualPauseFlag();
+            }
+
             // v1.1.8: 处理延迟重新隐藏
             if (needRehide && rehideTicks > 0)
             {
@@ -486,6 +495,76 @@ namespace AutoHideHost
                 this.Monitor.Log($"检测到 {onlineFarmhands} 名玩家在线，已自动恢复", LogLevel.Info);
             }
             */
+        }
+
+        private bool ReadManualPauseFlag()
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(Config.ManualPauseFile) || !File.Exists(Config.ManualPauseFile))
+                    return false;
+
+                string raw = File.ReadAllText(Config.ManualPauseFile).Trim();
+                if (raw.Equals("true", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                return Regex.IsMatch(raw, "\"enabled\"\\s*:\\s*true", RegexOptions.IgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"读取手动暂停状态失败: {ex.Message}", LogLevel.Warn);
+                return false;
+            }
+        }
+
+        private void WriteManualPauseFlag(bool enabled, string reason)
+        {
+            if (string.IsNullOrWhiteSpace(Config.ManualPauseFile))
+                return;
+
+            string dir = Path.GetDirectoryName(Config.ManualPauseFile);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            string json = "{\n" +
+                $"  \"enabled\": {(enabled ? "true" : "false")},\n" +
+                $"  \"updatedAt\": \"{DateTime.UtcNow:O}\",\n" +
+                "  \"updatedBy\": \"smapi-console\",\n" +
+                $"  \"reason\": \"{reason.Replace("\"", "'")}\"\n" +
+                "}\n";
+            File.WriteAllText(Config.ManualPauseFile, json);
+        }
+
+        private void ApplyManualPauseFlag()
+        {
+            if (!Context.IsWorldReady)
+                return;
+
+            bool requested = ReadManualPauseFlag();
+            if (requested)
+            {
+                if (!Game1.paused)
+                {
+                    Game1.paused = true;
+                    manualPauseApplied = true;
+                    this.Monitor.Log("面板手动暂停已开启：游戏内时间已冻结", LogLevel.Info);
+                }
+                else if (!manualPauseLastRequested)
+                {
+                    this.Monitor.Log("面板手动暂停已开启：游戏已经处于暂停状态", LogLevel.Info);
+                }
+            }
+            else
+            {
+                if (manualPauseApplied && Game1.paused)
+                {
+                    Game1.paused = false;
+                    this.Monitor.Log("面板手动暂停已关闭：游戏内时间继续流动", LogLevel.Info);
+                }
+                manualPauseApplied = false;
+            }
+
+            manualPauseLastRequested = requested;
         }
 
         /// <summary>
@@ -823,6 +902,7 @@ namespace AutoHideHost
             this.Helper.ConsoleCommands.Add("togglehost", "切换房主可见性", OnCommand_ToggleHost);
             this.Helper.ConsoleCommands.Add("autohide_status", "显示模组状态", OnCommand_Status);
             this.Helper.ConsoleCommands.Add("autohide_reload", "重新加载配置", OnCommand_Reload);
+            this.Helper.ConsoleCommands.Add("autohide_pause_time", "手动暂停/恢复游戏时间: autohide_pause_time on|off|toggle|status", OnCommand_PauseTime);
         }
 
         private void OnCommand_HideHost(string command, string[] args)
@@ -877,7 +957,43 @@ namespace AutoHideHost
             }
             this.Monitor.Log($"隐藏方式: {Config.HideMethod}", LogLevel.Info);
             this.Monitor.Log($"自动暂停: {Config.PauseWhenEmpty}", LogLevel.Info);
+            this.Monitor.Log($"面板手动暂停: {ReadManualPauseFlag()} ({Config.ManualPauseFile})", LogLevel.Info);
             this.Monitor.Log($"即时睡眠: {Config.InstantSleepWhenReady}", LogLevel.Info);
+        }
+
+        private void OnCommand_PauseTime(string command, string[] args)
+        {
+            if (!Context.IsMainPlayer)
+            {
+                this.Monitor.Log("只有房主可以执行此命令", LogLevel.Error);
+                return;
+            }
+
+            string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "status";
+            bool current = ReadManualPauseFlag();
+
+            if (mode == "status")
+            {
+                this.Monitor.Log($"面板手动暂停: {current}; 游戏暂停: {Game1.paused}", LogLevel.Info);
+                return;
+            }
+
+            bool next;
+            if (mode == "on" || mode == "true" || mode == "pause")
+                next = true;
+            else if (mode == "off" || mode == "false" || mode == "resume")
+                next = false;
+            else if (mode == "toggle")
+                next = !current;
+            else
+            {
+                this.Monitor.Log("用法: autohide_pause_time on|off|toggle|status", LogLevel.Info);
+                return;
+            }
+
+            WriteManualPauseFlag(next, $"console:{mode}");
+            ApplyManualPauseFlag();
+            this.Monitor.Log(next ? "已开启手动暂停游戏时间" : "已关闭手动暂停游戏时间", LogLevel.Info);
         }
 
         private void OnCommand_Reload(string command, string[] args)

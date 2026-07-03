@@ -22,6 +22,7 @@ const BACKUPS_DIR = process.env.BACKUPS_DIR || '/home/steam/.local/share/puppy-s
 const GAME_DIR = process.env.GAME_DIR || '/home/steam/stardewvalley';
 const SMAPI_LOG = process.env.SMAPI_LOG || '/home/steam/.config/StardewValley/ErrorLogs/SMAPI-latest.txt';
 const ENV_FILE = process.env.ENV_FILE || '/home/steam/web-panel/data/runtime.env';
+const MANUAL_PAUSE_FILE = process.env.MANUAL_PAUSE_FILE || '/home/steam/web-panel/data/manual-pause.json';
 
 // Export paths for use by API modules
 const config = {
@@ -34,6 +35,7 @@ const config = {
   GAME_DIR,
   SMAPI_LOG,
   ENV_FILE,
+  MANUAL_PAUSE_FILE,
 };
 module.exports = config;
 
@@ -104,6 +106,8 @@ app.put('/api/config', auth.verifyMiddleware, configAPI.updateConfig);
 // Server control API
 app.post('/api/server/restart', auth.verifyMiddleware, statusAPI.restartServer);
 app.post('/api/container/restart', auth.verifyMiddleware, statusAPI.restartContainer);
+app.get('/api/game/pause', auth.verifyMiddleware, statusAPI.getManualPause);
+app.post('/api/game/pause', auth.verifyMiddleware, statusAPI.setManualPause);
 
 // Mods API
 const modsAPI = require('./api/mods');

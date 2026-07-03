@@ -72,6 +72,7 @@ screenshots/*
 bin/
 obj/
 *.csproj
+!docker/mods-source/**/*.csproj
 *.dll
 !docker/mods/**/*.dll
 docker/mods/SkillLevelGuard-Source/

@@ -70,6 +70,9 @@ const translations = {
     'dash.healthy': '正常', 'dash.unhealthy': '异常',
     'dash.paused': '暂停游戏',
     'dash.viewLogs': '查看日志', 'dash.restart': '重启服务器', 'dash.backup': '立即备份',
+    'dash.pauseTime': '暂停时间', 'dash.resumeTime': '恢复时间',
+    'dash.pauseHint': '手动暂停会冻结游戏内时间，所有在线玩家都会停在当前时间，直到你恢复。',
+    'dash.pauseActive': '手动暂停已开启，游戏内时间会保持冻结。',
     'term.title': 'SMAPI 控制台（非系统终端）', 'term.hint': '点击“连接”后会附着到正在运行的 SMAPI 进程。这里只能输入 SMAPI 命令或 Steam Guard 验证码，不能执行 Linux 命令。',
     'term.connect': '连接', 'term.disconnect': '断开', 'term.send': '发送', 'term.input': '输入 SMAPI 命令或 Steam Guard 验证码...',
     'players.title': '在线玩家', 'players.loading': '加载中...',
@@ -131,6 +134,9 @@ const translations = {
     'toast.restartOk': '重启指令已发送', 'toast.restartFail': '重启失败',
     'toast.containerRestarting': '容器正在重启，页面会自动重新连接。',
     'toast.containerRestartFail': '容器重启失败',
+    'toast.pauseOn': '已开启手动暂停，游戏内时间即将冻结。',
+    'toast.pauseOff': '已关闭手动暂停，游戏内时间将继续流动。',
+    'toast.pauseFail': '切换手动暂停失败',
     'toast.pwdOk': '密码修改成功', 'toast.pwdFail': '密码修改失败',
     'toast.configOk': '配置已保存，重启 Docker 容器后生效', 'toast.configFail': '配置保存失败',
     'toast.creatingBackup': '正在创建备份...', 'toast.passwordFields': '请填写两个密码字段',
@@ -155,6 +161,9 @@ const translations = {
     'dash.healthy': 'Healthy', 'dash.unhealthy': 'Unhealthy',
     'dash.paused': 'Paused',
     'dash.viewLogs': 'View Logs', 'dash.restart': 'Restart Server', 'dash.backup': 'Backup Now',
+    'dash.pauseTime': 'Pause Time', 'dash.resumeTime': 'Resume Time',
+    'dash.pauseHint': 'Manual pause freezes in-game time for all connected players until you resume it.',
+    'dash.pauseActive': 'Manual pause is enabled. In-game time will stay frozen.',
     'term.title': 'SMAPI Console (Not a System Shell)', 'term.hint': 'Click "Connect" to attach to the running SMAPI process. This accepts SMAPI commands and Steam Guard codes, not Linux shell commands.',
     'term.connect': 'Connect', 'term.disconnect': 'Disconnect', 'term.send': 'Send', 'term.input': 'Type a SMAPI command or Steam Guard code...',
     'players.title': 'Online Players', 'players.loading': 'Loading...',
@@ -216,6 +225,9 @@ const translations = {
     'toast.restartOk': 'Restart initiated', 'toast.restartFail': 'Restart failed',
     'toast.containerRestarting': 'Container is restarting. This page will reconnect automatically.',
     'toast.containerRestartFail': 'Container restart failed',
+    'toast.pauseOn': 'Manual pause enabled. In-game time will freeze shortly.',
+    'toast.pauseOff': 'Manual pause disabled. In-game time will resume.',
+    'toast.pauseFail': 'Failed to toggle manual pause',
     'toast.pwdOk': 'Password changed', 'toast.pwdFail': 'Password change failed',
     'toast.configOk': 'Config saved. Restart the Docker container to apply.', 'toast.configFail': 'Failed to save config',
     'toast.creatingBackup': 'Creating backup...', 'toast.passwordFields': 'Please fill in both password fields',
@@ -577,6 +589,29 @@ function updateDashboardUI(data) {
   setText('detail-event-passout', String(data.events?.passout || 0));
   setText('detail-event-readycheck', String(data.events?.readycheck || 0));
   setText('detail-event-offline', String(data.events?.offline || 0));
+  updateManualPauseUI(data.manualPause || { enabled: false });
+}
+
+function updateManualPauseUI(manualPause) {
+  const enabled = manualPause && manualPause.enabled === true;
+  const button = document.getElementById('manualPauseBtn');
+  const label = document.getElementById('manualPauseBtnText');
+  const note = document.getElementById('manualPauseNote');
+
+  if (button) {
+    button.disabled = false;
+    button.classList.toggle('manual-pause-active', enabled);
+    button.dataset.enabled = enabled ? 'true' : 'false';
+  }
+
+  if (label) {
+    label.textContent = enabled ? t('dash.resumeTime') : t('dash.pauseTime');
+  }
+
+  if (note) {
+    note.classList.toggle('active', enabled);
+    note.textContent = enabled ? t('dash.pauseActive') : t('dash.pauseHint');
+  }
 }
 
 function formatUptime(seconds) {
@@ -1383,6 +1418,36 @@ async function restartServer() {
     showToast(t('toast.restartOk'), 'success');
   } else {
     showToast(formatApiError(data, t('toast.restartFail')), 'error', 7000);
+  }
+}
+
+async function toggleManualPause() {
+  const current = lastStatusData?.manualPause?.enabled === true;
+  const button = document.getElementById('manualPauseBtn');
+  if (button) {
+    button.disabled = true;
+  }
+
+  const data = await API.post('/api/game/pause', {
+    enabled: !current,
+    reason: 'dashboard-toggle',
+  });
+
+  if (data && data.success) {
+    const manualPause = data.manualPause || { enabled: !current };
+    if (!lastStatusData) {
+      lastStatusData = {};
+    }
+    lastStatusData.manualPause = manualPause;
+    if (manualPause.enabled) {
+      lastStatusData.paused = true;
+    }
+    updateManualPauseUI(manualPause);
+    showToast(manualPause.enabled ? t('toast.pauseOn') : t('toast.pauseOff'), 'success');
+    loadStatus();
+  } else {
+    showToast(formatApiError(data, t('toast.pauseFail')), 'error', 7000);
+    updateManualPauseUI(lastStatusData?.manualPause || { enabled: current });
   }
 }
 

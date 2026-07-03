@@ -18,5 +18,7 @@ namespace AutoHideHost
         public int PeerConnectGuardSeconds { get; set; } = 30;  // 守护窗口时长（秒）
         public int RehideDelayTicks { get; set; } = 1;  // 重新隐藏延迟（游戏帧数）
         public bool DebugTraceMenus { get; set; } = false;  // 启用菜单堆栈追踪
+        public string ManualPauseFile { get; set; } = "/home/steam/web-panel/data/manual-pause.json";
+        public int ManualPausePollTicks { get; set; } = 60;
     }
 }

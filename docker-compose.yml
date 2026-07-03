@@ -83,6 +83,7 @@ services:
       - ENABLE_LOG_MONITOR=${ENABLE_LOG_MONITOR:-true}
       - LOG_MONITOR_INTERVAL=${LOG_MONITOR_INTERVAL:-5}
       - LOG_MONITOR_BATCH_SIZE=${LOG_MONITOR_BATCH_SIZE:-500}
+      - MANUAL_PAUSE_FILE=${MANUAL_PAUSE_FILE:-/home/steam/web-panel/data/manual-pause.json}
 
       # GPU rendering - OPTIONAL (default: false)
       # GPU 渲染 - 可选（默认：禁用）
