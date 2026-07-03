@@ -1,0 +1,77 @@
+# Environment variables with sensitive data
+.env
+CODEX-PROMPTS.md
+
+# Data directories
+data/
+
+# Docker volumes
+*.tar.gz
+*.zip
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+.*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Backup files
+backups/
+backup-*/
+*.backup
+CLAUDE.md.backup
+
+# Private documentation and development materials
+docs/
+DEVELOPMENT-ROADMAP.md
+CLAUDE.md
+PROMOTIONAL-MATERIALS-COMPLETE.md
+PROMOTIONAL-TEMPLATES.md
+QUICK-START-SUMMARY.md
+SCREENSHOT-GUIDE.md
+SCREENSHOT-TODO.md
+SCREENSHOTS-SUMMARY.md
+TERMINAL-RECORDING-COMPLETION.md
+VIDEO-RECORDING-GUIDE.md
+RELEASE-CHECKLIST.md
+PROMOTION-CONTENT.md
+FINAL-SUMMARY.md
+NEXT-STEPS.md
+RELEASE-v*.md
+RELEASE-NOTES-*.md
+DOCKER-HUB-OVERVIEW.md
+
+# Nexus Mods submission materials (private)
+NEXUS-*.md
+BBCODE-*.md
+SCRIPT-FIX-*.md
+AutoHideHost-v*.zip
+
+# Screenshots (except the demo GIF used in README)
+screenshots/
+!screenshots/
+screenshots/*
+!screenshots/game/
+!screenshots/game/instant-sleep-demo.gif
+!screenshots/panel/
+!screenshots/panel/Dashboard.png
+!screenshots/panel/Saves.png
+!screenshots/panel/仪表盘.png
+!screenshots/panel/后台登录.png
+
+# C# build artifacts
+bin/
+obj/
+*.csproj
+*.dll
+!docker/mods/**/*.dll
+docker/mods/SkillLevelGuard-Source/

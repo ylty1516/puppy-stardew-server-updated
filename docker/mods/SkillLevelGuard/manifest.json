@@ -1,0 +1,10 @@
+{
+  "Name": "Skill Level Guard",
+  "Author": "Puppy-Stardew",
+  "Version": "1.4.0",
+  "Description": "Prevents Always On Server from forcing host to Level 10, restores real XP-based levels safely. v1.4: Captures AOS instance via Entry patch.",
+  "UniqueID": "puppystardew.SkillLevelGuard",
+  "EntryDll": "SkillLevelGuard.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

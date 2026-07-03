@@ -1,0 +1,20 @@
+{
+  "name": "puppy-stardew-web-panel",
+  "version": "1.0.0",
+  "description": "Lightweight web management panel for Puppy Stardew Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}

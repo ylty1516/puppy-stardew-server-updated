@@ -1,0 +1,1184 @@
+using System;
+using System.Linq;
+using Microsoft.Xna.Framework;
+using StardewModdingAPI;
+using StardewModdingAPI.Events;
+using StardewValley;
+using StardewValley.Locations;
+
+namespace AutoHideHost
+{
+    /// <summary>AutoHideHost 模组主入口 - v1.2.2: 完全禁用LevelUpMenu自动处理</summary>
+    public class ModEntry : Mod
+    {
+        private ModConfig Config;
+        private bool isHostHidden = false;
+        private bool hasTriggeredSleep = false;
+        private bool needToSleep = false;
+        private int sleepDelayTicks = 0;
+        private bool isSleepInProgress = false;
+        private bool handledReadyCheck = false;  // v1.4.0: 防止重复处理同一个ReadyCheck
+
+        // v1.4.1: Always On Server 自动启用相关
+        private bool alwaysOnServerChecked = false;
+        private int alwaysOnServerCheckTicks = 0;
+        private bool needToCheckAlwaysOnServer = false;
+
+        // v1.1.8: 守护窗口机制 - 防止玩家连接后房主被传送到Farm
+        private DateTime? guardWindowEnd = null;  // 守护窗口结束时间
+        private DateTime? lastRehideTime = null;  // 上次重新隐藏时间（防抖）
+        private bool needRehide = false;  // 是否需要重新隐藏
+        private int rehideTicks = 0;  // 重新隐藏倒计时
+
+        // v1.2.0: 防止事件跳过无限循环
+        private string lastSkippedEventId = null;  // 上次跳过的事件ID
+        private DateTime? lastSkipTime = null;  // 上次跳过时间
+        private int skipCooldownSeconds = 5;  // 跳过冷却时间（秒）
+
+        public override void Entry(IModHelper helper)
+        {
+            this.Config = helper.ReadConfig<ModConfig>();
+            this.Monitor.Log($"AutoHideHost v{this.ModManifest.Version} 已加载", LogLevel.Info);
+            this.Monitor.Log($"配置: 隐藏={Config.HideMethod}, 暂停={Config.PauseWhenEmpty}, 即时睡眠={Config.InstantSleepWhenReady}", LogLevel.Info);
+
+            helper.Events.GameLoop.SaveLoaded += OnSaveLoaded;
+            helper.Events.GameLoop.DayStarted += OnDayStarted;
+            helper.Events.GameLoop.UpdateTicked += OnUpdateTicked;
+            helper.Events.GameLoop.Saving += OnSaving;
+            helper.Events.Display.MenuChanged += OnMenuChanged;  // v1.4.0: 处理菜单变化
+
+            // v1.1.8: 守护窗口机制
+            helper.Events.Multiplayer.PeerConnected += OnPeerConnected;  // 玩家连接时启动守护窗口
+            helper.Events.Player.Warped += OnWarped;  // 监控房主传送
+
+            RegisterCommands();
+        }
+
+        private void OnSaveLoaded(object sender, SaveLoadedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled)
+                return;
+
+            // v1.4.1: 启动 Always On Server 检查（延迟3秒，等待ServerAutoLoad设置多人模式）
+            needToCheckAlwaysOnServer = true;
+            alwaysOnServerCheckTicks = 0;
+            alwaysOnServerChecked = false;
+            this.Monitor.Log("存档已加载，3秒后检查 Always On Server 状态", LogLevel.Info);
+
+            if (Config.AutoHideOnLoad)
+            {
+                HideHost();
+                this.Monitor.Log("房主自动隐藏", LogLevel.Info);
+            }
+        }
+
+        private void OnDayStarted(object sender, DayStartedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled || !Config.AutoHideDaily)
+                return;
+            HideHost();
+            hasTriggeredSleep = false;
+            isSleepInProgress = false;
+            handledReadyCheck = false;  // v1.4.0: 重置ReadyCheck标志
+
+            // v1.2.0: 重置事件跳过标志
+            lastSkippedEventId = null;
+            lastSkipTime = null;
+
+            // v1.1.9: 每天开始时启动守护窗口（防止玩家一直在线导致窗口过期）
+            if (Config.PreventHostFarmWarp)
+            {
+                guardWindowEnd = DateTime.Now.AddSeconds(Config.PeerConnectGuardSeconds);
+                this.Monitor.Log($"[守护窗口] 新的一天开始，启动{Config.PeerConnectGuardSeconds}秒守护窗口", LogLevel.Info);
+                LogDebug($"[守护窗口] 窗口结束时间: {guardWindowEnd:HH:mm:ss}");
+            }
+
+            LogDebug("新的一天，房主重新隐藏");
+        }
+
+        /// <summary>
+        /// v1.4.0: 处理菜单变化 - 自动处理ShippingMenu和LevelUpMenu
+        /// </summary>
+        private void OnMenuChanged(object sender, MenuChangedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled)
+                return;
+
+            // 重置ReadyCheck标志（新菜单出现时）
+            if (e.OldMenu != null && e.OldMenu.GetType().Name == "ReadyCheckDialog")
+            {
+                handledReadyCheck = false;
+            }
+
+            if (e.NewMenu == null)
+                return;
+
+            string menuType = e.NewMenu.GetType().Name;
+            this.Monitor.Log($"菜单变化: {e.OldMenu?.GetType().Name ?? "null"} → {menuType}", LogLevel.Debug);
+
+            // 1. ShippingMenu（结算菜单）
+            if (e.NewMenu is StardewValley.Menus.ShippingMenu shippingMenu)
+            {
+                this.Monitor.Log("检测到ShippingMenu，自动点击OK", LogLevel.Info);
+                try
+                {
+                    // 使用反射调用okClicked方法
+                    this.Helper.Reflection.GetMethod(shippingMenu, "okClicked").Invoke();
+                    this.Monitor.Log("✓ ShippingMenu已自动关闭", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"关闭ShippingMenu失败: {ex.Message}", LogLevel.Error);
+                }
+                return;
+            }
+
+            // 2. LevelUpMenu（升级菜单）
+            // v1.2.2: CRITICAL - 完全不处理LevelUpMenu！
+            // 原因：任何自动点击都会触发技能升级选择，导致房主技能自动升到10级
+            // LevelUpMenu不会阻塞游戏流程，可以安全地让它保持显示
+            // 房主是隐藏的，玩家看不到这个菜单，游戏会正常继续
+            if (e.NewMenu is StardewValley.Menus.LevelUpMenu levelUpMenu)
+            {
+                this.Monitor.Log("检测到LevelUpMenu，保持显示（不自动处理以避免技能自动升级）", LogLevel.Info);
+                return;  // 不做任何处理，让菜单自然存在
+            }
+
+            // 3. DialogueBox（对话框）- 处理任务通知等阻塞性对话
+            if (e.NewMenu is StardewValley.Menus.DialogueBox dialogueBox)
+            {
+                try
+                {
+                    // 获取当前对话内容
+                    var dialogue = this.Helper.Reflection.GetField<StardewValley.Dialogue>(
+                        dialogueBox, "characterDialogue", required: false)?.GetValue();
+
+                    string dialogueText = dialogue?.getCurrentDialogue() ?? "";
+
+                    // 记录所有 DialogueBox 内容以便调试
+                    this.Monitor.Log($"DialogueBox 内容: {dialogueText.Substring(0, Math.Min(100, dialogueText.Length))}", LogLevel.Debug);
+
+                    // 检测是否是任务通知（包含特定关键词）
+                    if (dialogueText.Contains("Accept Quest") ||
+                        dialogueText.Contains("accept") ||
+                        dialogueText.Contains("lost") ||
+                        dialogueText.Contains("find") ||
+                        dialogueText.Contains("250g") ||
+                        dialogueText.Contains("MISSING"))
+                    {
+                        this.Monitor.Log($"检测到任务通知对话框，自动拒绝", LogLevel.Info);
+
+                        // 按ESC键关闭对话框（拒绝任务）
+                        dialogueBox.receiveKeyPress(Microsoft.Xna.Framework.Input.Keys.Escape);
+                        Game1.activeClickableMenu = null;
+
+                        this.Monitor.Log("✓ 任务通知已自动关闭（拒绝）", LogLevel.Info);
+                        return;
+                    }
+
+                    // 如果不是任务通知，也自动关闭（避免阻塞游戏流程）
+                    this.Monitor.Log("检测到非任务通知的DialogueBox，自动关闭", LogLevel.Info);
+                    dialogueBox.receiveKeyPress(Microsoft.Xna.Framework.Input.Keys.Escape);
+                    Game1.activeClickableMenu = null;
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"处理DialogueBox失败: {ex.Message}", LogLevel.Debug);
+                }
+            }
+
+            // 4. LetterViewerMenu（信件查看菜单）- 自动关闭以避免阻塞睡眠
+            if (e.NewMenu is StardewValley.Menus.LetterViewerMenu letterMenu)
+            {
+                this.Monitor.Log("检测到LetterViewerMenu（信件菜单），自动关闭", LogLevel.Info);
+                try
+                {
+                    // 按ESC键关闭信件菜单
+                    letterMenu.receiveKeyPress(Microsoft.Xna.Framework.Input.Keys.Escape);
+                    Game1.activeClickableMenu = null;
+                    this.Monitor.Log("✓ LetterViewerMenu已自动关闭", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"关闭LetterViewerMenu失败: {ex.Message}", LogLevel.Error);
+                }
+                return;
+            }
+        }
+
+        /// <summary>
+        /// v1.3.4: OnSaving - 确保房主位置正确，处理菜单
+        /// </summary>
+        private void OnSaving(object sender, SavingEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled)
+                return;
+
+            this.Monitor.Log($"OnSaving事件触发 - 当前位置: {Game1.player.currentLocation?.Name}", LogLevel.Info);
+            this.Monitor.Log($"lastSleepLocation: {Game1.player.lastSleepLocation.Value}, lastSleepPoint: {Game1.player.lastSleepPoint.Value}", LogLevel.Info);
+
+            // v1.3.4: CRITICAL - 如果房主不在FarmHouse，强制设置睡眠位置
+            if (Game1.player.currentLocation?.Name != "FarmHouse")
+            {
+                this.Monitor.Log($"警告：房主在{Game1.player.currentLocation?.Name}，强制设置睡眠唤醒位置", LogLevel.Warn);
+
+                int bedX = 9, bedY = 9;
+                int houseUpgradeLevel = Game1.player.HouseUpgradeLevel;
+                if (houseUpgradeLevel == 1)
+                {
+                    bedX = 21; bedY = 4;
+                }
+                else if (houseUpgradeLevel >= 2)
+                {
+                    bedX = 27; bedY = 13;
+                }
+
+                Game1.player.lastSleepLocation.Value = "FarmHouse";
+                Game1.player.lastSleepPoint.Value = new Point(bedX, bedY);
+                this.Monitor.Log($"✓ 强制设置睡眠唤醒: FarmHouse ({bedX}, {bedY})", LogLevel.Info);
+            }
+
+            // 自动点击ShippingMenu的OK按钮
+            if (Game1.activeClickableMenu is StardewValley.Menus.ShippingMenu)
+            {
+                this.Monitor.Log("检测到ShippingMenu（结算菜单），自动点击OK", LogLevel.Info);
+                try
+                {
+                    this.Helper.Reflection.GetMethod(Game1.activeClickableMenu, "okClicked").Invoke();
+                    this.Monitor.Log("✓ ShippingMenu已自动关闭", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"关闭ShippingMenu失败: {ex.Message}", LogLevel.Error);
+                }
+            }
+
+            // ShippingMenu关闭后可能出现DialogueBox
+            if (Game1.activeClickableMenu is StardewValley.Menus.DialogueBox)
+            {
+                this.Monitor.Log("OnSaving期间检测到DialogueBox，自动点击关闭", LogLevel.Info);
+                Game1.activeClickableMenu.receiveLeftClick(10, 10);
+            }
+        }
+
+        private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
+        {
+            if (!Config.Enabled || !Context.IsMainPlayer)
+                return;
+
+            // v1.1.8: 处理延迟重新隐藏
+            if (needRehide && rehideTicks > 0)
+            {
+                rehideTicks--;
+                if (rehideTicks == 0)
+                {
+                    this.Monitor.Log($"[守护窗口] 执行重新隐藏", LogLevel.Info);
+                    HideHost();
+                    lastRehideTime = DateTime.Now;
+                    needRehide = false;
+                    this.Monitor.Log($"[守护窗口] ✓ 房主已重新隐藏", LogLevel.Info);
+                }
+            }
+
+            // v1.4.1: 检查并自动启用 Always On Server
+            if (needToCheckAlwaysOnServer && !alwaysOnServerChecked)
+            {
+                alwaysOnServerCheckTicks++;
+
+                // 延迟180 ticks (3秒)，给 ServerAutoLoad 时间设置多人模式
+                if (alwaysOnServerCheckTicks >= 180)
+                {
+                    alwaysOnServerChecked = true;
+                    needToCheckAlwaysOnServer = false;
+                    CheckAndEnableAlwaysOnServer();
+                }
+            }
+
+            // v1.4.0: 全局菜单和Ready状态处理
+            if (e.Ticks % 30 == 0)  // 每0.5秒执行一次
+            {
+                // v1.4.0: 使用Team Ready API - 更可靠的方案
+                try
+                {
+                    // 检查是否有活跃的"sleep"准备检查
+                    if (Game1.player?.team != null)
+                    {
+                        // 尝试通过反射获取ready check状态
+                        var readyCheckName = GetActiveReadyCheckName();
+
+                        if (!string.IsNullOrEmpty(readyCheckName) && !handledReadyCheck)
+                        {
+                            this.Monitor.Log($"检测到活跃的ReadyCheck: '{readyCheckName}'", LogLevel.Info);
+
+                            // 直接设置房主为准备状态
+                            try
+                            {
+                                var setReadyMethod = this.Helper.Reflection.GetMethod(
+                                    Game1.player.team, "SetLocalReady", required: false);
+
+                                if (setReadyMethod != null)
+                                {
+                                    setReadyMethod.Invoke(readyCheckName, true);
+                                    this.Monitor.Log($"✓ 房主已设置为准备状态（SetLocalReady）", LogLevel.Info);
+                                    handledReadyCheck = true;
+                                }
+                                else
+                                {
+                                    this.Monitor.Log("未找到SetLocalReady方法，尝试UI点击", LogLevel.Debug);
+                                    // 回退到UI点击
+                                    TryClickReadyCheckDialog();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                this.Monitor.Log($"SetLocalReady失败: {ex.Message}，尝试UI点击", LogLevel.Debug);
+                                TryClickReadyCheckDialog();
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"ReadyCheck处理出错: {ex.Message}", LogLevel.Trace);
+                }
+
+                // 3. 自动跳过可跳过的事件
+                // v1.2.0: 添加事件ID去重和冷却时间，防止无限循环
+                if (Game1.CurrentEvent != null && Game1.CurrentEvent.skippable)
+                {
+                    string currentEventId = Game1.CurrentEvent.id;
+
+                    // 检查是否是同一个事件
+                    bool isSameEvent = (currentEventId == lastSkippedEventId);
+
+                    // 检查冷却时间
+                    bool inCooldown = false;
+                    if (lastSkipTime.HasValue)
+                    {
+                        var timeSinceLastSkip = (DateTime.Now - lastSkipTime.Value).TotalSeconds;
+                        inCooldown = timeSinceLastSkip < skipCooldownSeconds;
+
+                        if (inCooldown && isSameEvent)
+                        {
+                            // 同一个事件且在冷却期内，跳过（防止无限循环）
+                            LogDebug($"[事件跳过冷却] 事件 {currentEventId} 在 {timeSinceLastSkip:F1}秒内已处理，跳过");
+                            return;
+                        }
+                    }
+
+                    // 可以跳过这个事件
+                    this.Monitor.Log($"跳过可跳过的事件: {currentEventId}", LogLevel.Info);
+                    Game1.CurrentEvent.skipEvent();
+
+                    // 记录已处理的事件
+                    lastSkippedEventId = currentEventId;
+                    lastSkipTime = DateTime.Now;
+                }
+            }
+
+            // v1.3.5: 睡眠期间维持房主睡眠状态 + 强制睡眠位置
+            if (isSleepInProgress)
+            {
+                if (!Game1.player.isInBed.Value || Game1.player.timeWentToBed.Value == 0)
+                {
+                    Game1.player.isInBed.Value = true;
+                    Game1.player.timeWentToBed.Value = Game1.timeOfDay;
+                    LogDebug("持续维持房主睡眠状态");
+                }
+
+                // v1.3.5: CRITICAL FIX - 每个tick强制设置睡眠位置
+                // 防止被其他代码覆盖
+                if (Game1.player.lastSleepLocation.Value != "FarmHouse")
+                {
+                    int bedX = 9, bedY = 9;
+                    int houseUpgradeLevel = Game1.player.HouseUpgradeLevel;
+                    if (houseUpgradeLevel == 1)
+                    {
+                        bedX = 21; bedY = 4;
+                    }
+                    else if (houseUpgradeLevel >= 2)
+                    {
+                        bedX = 27; bedY = 13;
+                    }
+
+                    Game1.player.lastSleepLocation.Value = "FarmHouse";
+                    Game1.player.lastSleepPoint.Value = new Point(bedX, bedY);
+                    this.Monitor.Log($"睡眠期间强制修正lastSleepLocation: FarmHouse ({bedX}, {bedY})", LogLevel.Warn);
+                }
+
+                return;  // 睡眠期间跳过其他检查
+            }
+
+            // 处理延迟睡眠逻辑
+            if (needToSleep)
+            {
+                sleepDelayTicks++;
+                if (sleepDelayTicks >= 1)
+                {
+                    ExecuteSleep();
+                    needToSleep = false;
+                    sleepDelayTicks = 0;
+                }
+                return;
+            }
+
+            if (e.Ticks % 15 == 0 && Config.InstantSleepWhenReady)
+            {
+                CheckAndAutoSleep();
+            }
+
+            if (e.Ticks % 60 == 0)
+            {
+                CheckAndAutoPause();
+            }
+        }
+
+        private void HideHost()
+        {
+            if (!Context.IsMainPlayer)
+                return;
+
+            switch (Config.HideMethod.ToLower())
+            {
+                case "warp":
+                    Game1.warpFarmer(Config.WarpLocation, Config.WarpX, Config.WarpY, false);
+                    LogDebug($"房主已传送至 {Config.WarpLocation} ({Config.WarpX}, {Config.WarpY})");
+                    break;
+                case "invisible":
+                    this.Monitor.Log("隐形方式在1.6版本中不可用，使用warp方式", LogLevel.Warn);
+                    Game1.warpFarmer("Desert", 0, 0, false);
+                    break;
+                case "offmap":
+                    Game1.player.Position = new Vector2(-999999, -999999);
+                    LogDebug("房主已移动到地图外");
+                    break;
+                default:
+                    Game1.warpFarmer("Desert", 0, 0, false);
+                    break;
+            }
+            isHostHidden = true;
+        }
+
+        private void CheckAndAutoPause()
+        {
+            // v1.0.3: 完全禁用自动暂停功能，因为它会导致服务器重启后客户端无法连接
+            // 暂停功能与ServerAutoLoad的自动加载存档功能冲突
+            return;
+
+            /*
+            if (!Context.IsMainPlayer || !Config.PauseWhenEmpty || !Context.IsWorldReady)
+                return;
+
+            // 修复：只统计真正在线的玩家
+            int onlineFarmhands = Game1.getOnlineFarmers()
+                .Count(f => f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID);
+            bool shouldPause = (onlineFarmhands == 0);
+
+            if (shouldPause && !Game1.paused)
+            {
+                Game1.paused = true;
+                this.Monitor.Log("服务器无玩家在线，已自动暂停", LogLevel.Info);
+            }
+            else if (!shouldPause && Game1.paused)
+            {
+                Game1.paused = false;
+                hasTriggeredSleep = false;
+                this.Monitor.Log($"检测到 {onlineFarmhands} 名玩家在线，已自动恢复", LogLevel.Info);
+            }
+            */
+        }
+
+        /// <summary>
+        /// v1.2.2: 借鉴Always On Server的实现 - 使用startSleep()方法
+        /// 关键发现：startSleep是Location对象的方法，不是Farmer的方法！
+        /// </summary>
+        private void CheckAndAutoSleep()
+        {
+            if (!Context.IsMainPlayer || !Config.InstantSleepWhenReady)
+                return;
+
+            if (!Context.IsWorldReady || hasTriggeredSleep || needToSleep)
+                return;
+
+            // 跳过菜单检查
+            if (Game1.activeClickableMenu != null)
+            {
+                LogDebug($"[睡眠检查] 跳过 - 有活动菜单: {Game1.activeClickableMenu.GetType().Name}");
+                return;
+            }
+
+            var onlineFarmhands = Game1.getOnlineFarmers()
+                .Where(f => f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID)
+                .ToList();
+
+            if (onlineFarmhands.Count == 0)
+                return;
+
+            try
+            {
+                // 检查所有玩家是否真正上床睡觉
+                bool allFarmhandsInBed = onlineFarmhands.All(farmer =>
+                    farmer.isInBed.Value && farmer.timeWentToBed.Value > 0);
+
+                if (!allFarmhandsInBed)
+                    return;
+
+                // 所有玩家都在床上了，触发睡眠
+                this.Monitor.Log($"检测到所有 {onlineFarmhands.Count} 名玩家已上床，准备让主机睡觉", LogLevel.Info);
+
+                // v1.2.2: 使用Always On Server的方法
+                GoToBed();
+
+                hasTriggeredSleep = true;
+                this.Monitor.Log("✓ 主机已进入睡眠流程", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"触发睡眠时出错: {ex.Message}", LogLevel.Error);
+                this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Debug);
+            }
+        }
+
+        /// <summary>
+        /// v1.3.2: 修复Desert唤醒问题 - 确保房主在FarmHouse醒来
+        /// 关键：设置lastSleepLocation和lastSleepPoint确保正确唤醒
+        /// </summary>
+        private void GoToBed()
+        {
+            try
+            {
+                // 获取床的坐标
+                int bedX, bedY;
+                int houseUpgradeLevel = Game1.player.HouseUpgradeLevel;
+
+                if (houseUpgradeLevel == 0)
+                {
+                    bedX = 9;
+                    bedY = 9;
+                }
+                else if (houseUpgradeLevel == 1)
+                {
+                    bedX = 21;
+                    bedY = 4;
+                }
+                else
+                {
+                    bedX = 27;
+                    bedY = 13;
+                }
+
+                this.Monitor.Log($"传送主机到FarmHouse床上 ({bedX}, {bedY})", LogLevel.Info);
+
+                // 预先标记事件
+                PreventSleepEvents();
+
+                // 设置睡眠进行标志
+                isSleepInProgress = true;
+
+                // 传送到FarmHouse
+                Game1.warpFarmer("FarmHouse", bedX, bedY, false);
+
+                // 调用startSleep
+                var startSleepMethod = this.Helper.Reflection.GetMethod(Game1.currentLocation, "startSleep");
+                startSleepMethod.Invoke();
+
+                // v1.3.3: CRITICAL FIX - 在startSleep()之后设置睡眠位置
+                // startSleep()内部可能会设置lastSleepLocation，所以必须在它之后覆盖
+                Game1.player.lastSleepLocation.Value = "FarmHouse";
+                Game1.player.lastSleepPoint.Value = new Point(bedX, bedY);
+
+                this.Monitor.Log($"✓ startSleep()已调用", LogLevel.Info);
+                this.Monitor.Log($"✓ 设置睡眠唤醒位置: FarmHouse ({bedX}, {bedY})", LogLevel.Info);
+
+                Game1.displayHUD = true;
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"GoToBed出错: {ex.Message}", LogLevel.Error);
+                this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// 预先标记常见的睡眠特殊事件为"已看过"，防止它们打断睡眠流程
+        /// </summary>
+        private void PreventSleepEvents()
+        {
+            try
+            {
+                // 地震事件 (Spring 3) - 这是最常见导致问题的事件
+                if (!Game1.player.eventsSeen.Contains("60367"))
+                {
+                    Game1.player.eventsSeen.Add("60367");
+                    this.Monitor.Log("已预防地震事件 (60367)", LogLevel.Info);
+                }
+
+                // 其他常见睡眠事件ID列表
+                var commonSleepEvents = new[]
+                {
+                    "558291",  // Marnie的信件事件
+                    "831125",  // 升级提示
+                    "502261",  // 梦境事件
+                    "26",      // Shane 1心事件
+                    "27",      // Shane 2心事件
+                    "733330",  // 其他睡眠事件
+                };
+
+                foreach (var eventId in commonSleepEvents)
+                {
+                    if (!Game1.player.eventsSeen.Contains(eventId))
+                    {
+                        Game1.player.eventsSeen.Add(eventId);
+                        this.Monitor.Log($"已预防睡眠事件 ({eventId})", LogLevel.Debug);
+                    }
+                }
+
+                this.Monitor.Log("✓ 特殊事件预防完成", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"PreventSleepEvents出错: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
+        /// <summary>
+        /// 准备睡眠：设置床的位置信息（不传送房主，避免黑屏延迟）
+        /// </summary>
+        private void PrepareToBed()
+        {
+            try
+            {
+                // 获取房主的homeLocation
+                string homeLocationName = Game1.player.homeLocation.Value;
+                this.Monitor.Log($"房主的homeLocation: {homeLocationName}", LogLevel.Info);
+
+                // 获取床的坐标（根据房屋升级等级）
+                int bedX, bedY;
+                int houseUpgradeLevel = Game1.player.HouseUpgradeLevel;
+                this.Monitor.Log($"房屋升级等级: {houseUpgradeLevel}", LogLevel.Info);
+
+                if (houseUpgradeLevel == 0)
+                {
+                    bedX = 9;
+                    bedY = 9;
+                }
+                else if (houseUpgradeLevel == 1)
+                {
+                    bedX = 21;
+                    bedY = 4;
+                }
+                else
+                {
+                    bedX = 27;
+                    bedY = 13;
+                }
+
+                // 不传送房主，只设置床的位置信息
+                // 这样可以避免传送导致的黑屏延迟
+                this.Monitor.Log($"设置床位置: {homeLocationName} ({bedX}, {bedY})", LogLevel.Info);
+                Game1.player.mostRecentBed = new Microsoft.Xna.Framework.Vector2(bedX * 64, bedY * 64);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"PrepareToBed出错: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// 执行睡眠：v1.1.5 新方案 - 传送到床上并模拟点击床的行为
+        /// v1.1.4失败原因：只是传送和设置状态，但没有触发床的互动逻辑
+        /// 新方案：传送 → 查找床对象 → 触发床的checkAction
+        /// </summary>
+        private void ExecuteSleep()
+        {
+            try
+            {
+                this.Monitor.Log("=== v1.1.5: 开始新的睡眠方案 ===", LogLevel.Info);
+
+                // 获取房主的homeLocation和床坐标
+                string homeLocationName = Game1.player.homeLocation.Value;
+                int bedX, bedY;
+                int houseUpgradeLevel = Game1.player.HouseUpgradeLevel;
+
+                if (houseUpgradeLevel == 0)
+                {
+                    bedX = 9;
+                    bedY = 9;
+                }
+                else if (houseUpgradeLevel == 1)
+                {
+                    bedX = 21;
+                    bedY = 4;
+                }
+                else
+                {
+                    bedX = 27;
+                    bedY = 13;
+                }
+
+                this.Monitor.Log($"房屋等级 {houseUpgradeLevel}, 床坐标: ({bedX}, {bedY})", LogLevel.Info);
+
+                // CRITICAL FIX: 预先标记所有常见特殊事件为"已看过"，避免地震等事件干扰
+                PreventSleepEvents();
+
+                // 关闭所有活动菜单
+                if (Game1.activeClickableMenu != null)
+                {
+                    this.Monitor.Log($"关闭菜单: {Game1.activeClickableMenu.GetType().Name}", LogLevel.Debug);
+                    Game1.activeClickableMenu = null;
+                }
+
+                // 第一步：将房主传送到FarmHouse的床旁边（不是床上，而是床前）
+                this.Monitor.Log($"传送房主从 {Game1.currentLocation.Name} 到 {homeLocationName}", LogLevel.Info);
+                Game1.warpFarmer(homeLocationName, bedX, bedY, false);
+
+                // 传送后立即在下一个tick尝试查找床对象并模拟点击
+                // 使用Helper的事件来延迟执行
+                void HandleAfterWarp(object s, EventArgs ev)
+                {
+                    try
+                    {
+                        this.Monitor.Log("传送完成，开始查找床对象...", LogLevel.Debug);
+
+                        var farmHouse = Game1.currentLocation as StardewValley.Locations.FarmHouse;
+                        if (farmHouse != null)
+                        {
+                            // 查找床对象（BedFurniture）
+                            var bed = farmHouse.furniture.FirstOrDefault(f =>
+                                f is StardewValley.Objects.BedFurniture &&
+                                f.TileLocation.X == bedX &&
+                                f.TileLocation.Y == bedY);
+
+                            if (bed != null)
+                            {
+                                this.Monitor.Log($"找到床对象: {bed.GetType().Name} at ({bedX}, {bedY})", LogLevel.Info);
+
+                                // 模拟点击床
+                                var bedFurniture = bed as StardewValley.Objects.BedFurniture;
+                                if (bedFurniture != null)
+                                {
+                                    // 调用床的checkForAction方法，模拟玩家点击床
+                                    bool clicked = bedFurniture.checkForAction(Game1.player, false);
+                                    this.Monitor.Log($"模拟点击床: {clicked}", LogLevel.Info);
+                                }
+                            }
+                            else
+                            {
+                                this.Monitor.Log($"× 未找到床对象 at ({bedX}, {bedY})", LogLevel.Warn);
+                                this.Monitor.Log($"FarmHouse家具数量: {farmHouse.furniture.Count}", LogLevel.Debug);
+
+                                // 备用方案：直接设置睡眠状态
+                                Game1.player.isInBed.Value = true;
+                                Game1.player.timeWentToBed.Value = Game1.timeOfDay;
+                                Game1.player.lastSleepLocation.Value = homeLocationName;
+                                Game1.player.lastSleepPoint.Value = new Microsoft.Xna.Framework.Point(bedX, bedY);
+                                this.Monitor.Log("使用备用方案：直接设置睡眠状态", LogLevel.Warn);
+                            }
+                        }
+                        else
+                        {
+                            this.Monitor.Log("× 当前位置不是FarmHouse", LogLevel.Error);
+                        }
+
+                        // 设置睡眠进行标志
+                        isSleepInProgress = true;
+
+                        // 取消订阅事件
+                        this.Helper.Events.GameLoop.UpdateTicked -= HandleAfterWarp;
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Monitor.Log($"HandleAfterWarp出错: {ex.Message}", LogLevel.Error);
+                        this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Error);
+                        this.Helper.Events.GameLoop.UpdateTicked -= HandleAfterWarp;
+                    }
+                }
+
+                // 订阅一次性事件，在下一个tick执行
+                this.Helper.Events.GameLoop.UpdateTicked += HandleAfterWarp;
+
+                this.Monitor.Log("✓ 传送已触发，等待下一个tick执行点击床逻辑...", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"ExecuteSleep出错: {ex.Message}", LogLevel.Error);
+                this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Error);
+            }
+        }
+
+        private void ShowHost()
+        {
+            if (!Context.IsMainPlayer)
+                return;
+            Game1.warpFarmer("Farm", 64, 15, false);
+            Game1.player.temporarilyInvincible = false;
+            isHostHidden = false;
+            this.Monitor.Log("房主已显示在农场", LogLevel.Debug);
+        }
+
+        private void RegisterCommands()
+        {
+            this.Helper.ConsoleCommands.Add("hidehost", "立即隐藏房主", OnCommand_HideHost);
+            this.Helper.ConsoleCommands.Add("showhost", "显示房主", OnCommand_ShowHost);
+            this.Helper.ConsoleCommands.Add("togglehost", "切换房主可见性", OnCommand_ToggleHost);
+            this.Helper.ConsoleCommands.Add("autohide_status", "显示模组状态", OnCommand_Status);
+            this.Helper.ConsoleCommands.Add("autohide_reload", "重新加载配置", OnCommand_Reload);
+        }
+
+        private void OnCommand_HideHost(string command, string[] args)
+        {
+            if (!Context.IsMainPlayer)
+            {
+                this.Monitor.Log("只有房主可以执行此命令", LogLevel.Error);
+                return;
+            }
+            HideHost();
+            this.Monitor.Log("房主已隐藏", LogLevel.Info);
+        }
+
+        private void OnCommand_ShowHost(string command, string[] args)
+        {
+            if (!Context.IsMainPlayer)
+            {
+                this.Monitor.Log("只有房主可以执行此命令", LogLevel.Error);
+                return;
+            }
+            ShowHost();
+            this.Monitor.Log("房主已显示", LogLevel.Info);
+        }
+
+        private void OnCommand_ToggleHost(string command, string[] args)
+        {
+            if (!Context.IsMainPlayer)
+            {
+                this.Monitor.Log("只有房主可以执行此命令", LogLevel.Error);
+                return;
+            }
+            if (isHostHidden)
+                ShowHost();
+            else
+                HideHost();
+        }
+
+        private void OnCommand_Status(string command, string[] args)
+        {
+            this.Monitor.Log("=== AutoHideHost 模组状态 ===", LogLevel.Info);
+            this.Monitor.Log($"模组版本: {this.ModManifest.Version}", LogLevel.Info);
+            this.Monitor.Log($"启用状态: {Config.Enabled}", LogLevel.Info);
+            this.Monitor.Log($"房主隐藏: {isHostHidden}", LogLevel.Info);
+            if (Context.IsWorldReady)
+            {
+                // 修复：显示真实在线玩家数
+                int onlinePlayers = Game1.getOnlineFarmers()
+                    .Count(f => f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID);
+                int totalCabins = Game1.otherFarmers.Count();
+                this.Monitor.Log($"在线玩家数: {onlinePlayers} (总小屋: {totalCabins})", LogLevel.Info);
+                this.Monitor.Log($"游戏暂停: {Game1.paused}", LogLevel.Info);
+            }
+            this.Monitor.Log($"隐藏方式: {Config.HideMethod}", LogLevel.Info);
+            this.Monitor.Log($"自动暂停: {Config.PauseWhenEmpty}", LogLevel.Info);
+            this.Monitor.Log($"即时睡眠: {Config.InstantSleepWhenReady}", LogLevel.Info);
+        }
+
+        private void OnCommand_Reload(string command, string[] args)
+        {
+            this.Config = this.Helper.ReadConfig<ModConfig>();
+            this.Monitor.Log("配置文件已重新加载", LogLevel.Info);
+            OnCommand_Status(command, args);
+        }
+
+        /// <summary>
+        /// v1.4.0: 获取当前活跃的ReadyCheck名称（如"sleep"）
+        /// </summary>
+        private string GetActiveReadyCheckName()
+        {
+            try
+            {
+                // 检查是否有ReadyCheckDialog打开
+                if (Game1.activeClickableMenu != null &&
+                    Game1.activeClickableMenu.GetType().Name == "ReadyCheckDialog")
+                {
+                    // 尝试通过反射获取readyCheckId字段
+                    var idField = this.Helper.Reflection.GetField<string>(
+                        Game1.activeClickableMenu, "checkId", required: false);
+
+                    if (idField != null)
+                    {
+                        return idField.GetValue();
+                    }
+
+                    // 回退：尝试其他可能的字段名
+                    var altField = this.Helper.Reflection.GetField<string>(
+                        Game1.activeClickableMenu, "readyCheckId", required: false);
+
+                    if (altField != null)
+                    {
+                        return altField.GetValue();
+                    }
+
+                    // 默认返回"sleep"（最常见情况）
+                    return "sleep";
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"获取ReadyCheck名称失败: {ex.Message}", LogLevel.Trace);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// v1.4.0: 回退方案 - 通过UI点击ReadyCheckDialog
+        /// </summary>
+        private void TryClickReadyCheckDialog()
+        {
+            try
+            {
+                if (Game1.activeClickableMenu == null ||
+                    Game1.activeClickableMenu.GetType().Name != "ReadyCheckDialog")
+                {
+                    return;
+                }
+
+                // 尝试通过反射获取OK按钮
+                var okButton = this.Helper.Reflection.GetField<object>(
+                    Game1.activeClickableMenu, "okButton", required: false)?.GetValue();
+
+                if (okButton is StardewValley.Menus.ClickableTextureComponent button)
+                {
+                    // 点击按钮中心
+                    Game1.activeClickableMenu.receiveLeftClick(
+                        button.bounds.Center.X,
+                        button.bounds.Center.Y,
+                        true);
+                    this.Monitor.Log("✓ ReadyCheckDialog已通过反射点击", LogLevel.Info);
+                    handledReadyCheck = true;
+                    return;
+                }
+
+                // 最后的回退：使用估算的坐标
+                Game1.activeClickableMenu.receiveLeftClick(640, 460, true);
+                this.Monitor.Log("✓ ReadyCheckDialog已通过坐标点击（回退方案）", LogLevel.Info);
+                handledReadyCheck = true;
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"点击ReadyCheckDialog失败: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        /// <summary>
+        /// v1.4.1: 检查并自动启用 Always On Server
+        /// </summary>
+        private void CheckAndEnableAlwaysOnServer()
+        {
+            try
+            {
+                // 检查是否是服务器模式
+                if (!Game1.IsServer)
+                {
+                    this.Monitor.Log("当前不是服务器模式，跳过 Always On Server 检查", LogLevel.Debug);
+                    return;
+                }
+
+                // 检查 Always On Server 模组是否加载
+                var alwaysOnServerMod = this.Helper.ModRegistry.Get("mikko.Always_On_Server");
+                if (alwaysOnServerMod == null)
+                {
+                    this.Monitor.Log("未检测到 Always On Server 模组", LogLevel.Warn);
+                    return;
+                }
+
+                this.Monitor.Log("检测到 Always On Server 模组已加载", LogLevel.Info);
+                this.Monitor.Log("尝试自动启用 Always On Server 的 Server Mode...", LogLevel.Info);
+
+                // 方法1: 尝试通过反射直接设置 IsEnabled 字段
+                bool enabledViaReflection = false;
+                try
+                {
+                    // 使用 SMAPI 的 ModRegistry 获取已加载的所有模组
+                    var loadedMods = this.Helper.Reflection.GetField<System.Collections.Generic.IDictionary<string, object>>(
+                        this.Helper.ModRegistry,
+                        "Mods",
+                        required: false);
+
+                    if (loadedMods != null)
+                    {
+                        var modsDict = loadedMods.GetValue();
+                        if (modsDict != null && modsDict.ContainsKey("mikko.Always_On_Server"))
+                        {
+                            var modMetadata = modsDict["mikko.Always_On_Server"];
+                            var modField = this.Helper.Reflection.GetProperty<object>(modMetadata, "Mod", required: false);
+
+                            if (modField != null)
+                            {
+                                var modInstance = modField.GetValue();
+                                if (modInstance != null)
+                                {
+                                    // 直接设置 IsEnabled 字段
+                                    var isEnabledField = this.Helper.Reflection.GetField<bool>(modInstance, "IsEnabled", required: false);
+                                    if (isEnabledField != null)
+                                    {
+                                        isEnabledField.SetValue(true);
+                                        this.Monitor.Log("✓ 已通过反射启用 Always On Server", LogLevel.Info);
+
+                                        // 添加聊天消息
+                                        if (Game1.chatBox != null)
+                                        {
+                                            Game1.chatBox.addInfoMessage("The Host is in Server Mode!");
+                                        }
+
+                                        enabledViaReflection = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    this.Monitor.Log($"反射方法失败: {ex.Message}", LogLevel.Debug);
+                }
+
+                // 方法2: 如果反射失败，尝试模拟按键 F9
+                if (!enabledViaReflection)
+                {
+                    this.Monitor.Log("反射方法不可用，尝试模拟按键启用...", LogLevel.Info);
+                    try
+                    {
+                        // 模拟 F9 按键
+                        var keyboardState = Microsoft.Xna.Framework.Input.Keyboard.GetState();
+                        this.Helper.Reflection.GetMethod(Game1.game1, "checkForEscapeKeys").Invoke();
+
+                        // 给予一些延迟让按键处理完成
+                        System.Threading.Thread.Sleep(100);
+
+                        this.Monitor.Log("已尝试模拟按键启用 Always On Server", LogLevel.Info);
+                        enabledViaReflection = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        this.Monitor.Log($"模拟按键失败: {ex.Message}", LogLevel.Debug);
+                    }
+                }
+
+                // 如果所有方法都失败，显示手动启用说明
+                if (!enabledViaReflection)
+                {
+                    ShowManualEnableInstructions();
+                }
+                else
+                {
+                    this.Monitor.Log("✓ 自动暂停功能已启用（没有玩家时暂停，有玩家时继续）", LogLevel.Info);
+                }
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"启用 Always On Server 时出错: {ex.Message}", LogLevel.Error);
+                this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Debug);
+            }
+        }
+
+        /// <summary>
+        /// v1.1.2: 显示手动启用 Always On Server 的说明
+        /// </summary>
+        private void ShowManualEnableInstructions()
+        {
+            this.Monitor.Log("", LogLevel.Info);
+            this.Monitor.Log("==========================================", LogLevel.Info);
+            this.Monitor.Log("⚠ MANUAL ACTION REQUIRED / 需要手动操作", LogLevel.Info);
+            this.Monitor.Log("==========================================", LogLevel.Info);
+            this.Monitor.Log("", LogLevel.Info);
+            this.Monitor.Log("请手动启用 Always On Server 以使用自动暂停功能：", LogLevel.Info);
+            this.Monitor.Log("Please manually enable Always On Server for auto-pause:", LogLevel.Info);
+            this.Monitor.Log("", LogLevel.Info);
+            this.Monitor.Log("方法1 / Method 1: 通过 VNC 连接，按 F9 键", LogLevel.Info);
+            this.Monitor.Log("                  Connect via VNC, press F9 key", LogLevel.Info);
+            this.Monitor.Log("方法2 / Method 2: 在游戏内控制台输入: server", LogLevel.Info);
+            this.Monitor.Log("                  In-game console, type: server", LogLevel.Info);
+            this.Monitor.Log("", LogLevel.Info);
+            this.Monitor.Log("启用后游戏将在没有玩家时自动暂停", LogLevel.Info);
+            this.Monitor.Log("Game will auto-pause when no players are online", LogLevel.Info);
+            this.Monitor.Log("==========================================", LogLevel.Info);
+            this.Monitor.Log("", LogLevel.Info);
+        }
+
+        /// <summary>
+        /// v1.1.8: 玩家连接时启动守护窗口
+        /// </summary>
+        private void OnPeerConnected(object sender, PeerConnectedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled || !Config.PreventHostFarmWarp)
+                return;
+
+            // 启动/刷新守护窗口
+            guardWindowEnd = DateTime.Now.AddSeconds(Config.PeerConnectGuardSeconds);
+            this.Monitor.Log($"[守护窗口] 玩家 {e.Peer.PlayerID} 连接，启动{Config.PeerConnectGuardSeconds}秒守护窗口", LogLevel.Info);
+            LogDebug($"[守护窗口] 窗口结束时间: {guardWindowEnd:HH:mm:ss}");
+        }
+
+        /// <summary>
+        /// v1.1.8: 监控房主传送，检测并阻止意外传送到Farm/FarmHouse
+        /// </summary>
+        private void OnWarped(object sender, WarpedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled || !Config.PreventHostFarmWarp)
+                return;
+
+            // 记录所有传送（调试用）
+            LogDebug($"[传送监控] {e.OldLocation?.Name ?? "null"} → {e.NewLocation?.Name ?? "null"}");
+
+            // 检查是否在守护窗口内
+            bool inGuardWindow = guardWindowEnd.HasValue && DateTime.Now < guardWindowEnd.Value;
+
+            // 检查是否在睡眠/保存流程中（移除saveOnNewDay检查，因为它在传送时已经是true）
+            bool inSleepSaveFlow = isSleepInProgress || hasTriggeredSleep;
+
+            // 检查是否是意外传送到Farm或FarmHouse（不依赖isHostHidden标志）
+            bool isUnexpectedWarp = (e.NewLocation?.Name == "Farm" || e.NewLocation?.Name == "FarmHouse")
+                && !inSleepSaveFlow;
+
+            // 详细诊断日志
+            if (e.NewLocation?.Name == "Farm" || e.NewLocation?.Name == "FarmHouse")
+            {
+                this.Monitor.Log($"[守护窗口-诊断] 传送到{e.NewLocation?.Name}", LogLevel.Debug);
+                this.Monitor.Log($"[守护窗口-诊断] inGuardWindow={inGuardWindow}, guardWindowEnd={guardWindowEnd?.ToString("HH:mm:ss")}", LogLevel.Debug);
+                this.Monitor.Log($"[守护窗口-诊断] inSleepSaveFlow={inSleepSaveFlow} (isSleepInProgress={isSleepInProgress}, saveOnNewDay={Game1.saveOnNewDay}, hasTriggeredSleep={hasTriggeredSleep})", LogLevel.Debug);
+                this.Monitor.Log($"[守护窗口-诊断] isUnexpectedWarp={isUnexpectedWarp}", LogLevel.Debug);
+            }
+
+            if (inGuardWindow && isUnexpectedWarp)
+            {
+                this.Monitor.Log($"[守护窗口] ⚠️ 检测到意外传送到{e.NewLocation?.Name}！准备重新隐藏", LogLevel.Warn);
+                this.Monitor.Log($"[守护窗口] 原位置: {e.OldLocation?.Name}, 当前位置: {e.NewLocation?.Name}", LogLevel.Warn);
+
+                // 检查防抖：避免在短时间内重复隐藏
+                if (lastRehideTime.HasValue && (DateTime.Now - lastRehideTime.Value).TotalSeconds < 2)
+                {
+                    this.Monitor.Log($"[守护窗口] 防抖：距离上次隐藏不足2秒，跳过", LogLevel.Debug);
+                    return;
+                }
+
+                // 调度重新隐藏（延迟指定帧数）
+                needRehide = true;
+                rehideTicks = Config.RehideDelayTicks;
+                this.Monitor.Log($"[守护窗口] 已调度重新隐藏（延迟{rehideTicks}帧）", LogLevel.Info);
+            }
+            else if (isUnexpectedWarp && !inGuardWindow)
+            {
+                // 不在守护窗口内，但仍然检测到意外传送（记录警告）
+                this.Monitor.Log($"[传送监控] ⚠️ 检测到{e.NewLocation?.Name}传送（守护窗口外）: {e.OldLocation?.Name} → {e.NewLocation?.Name}", LogLevel.Warn);
+            }
+        }
+
+        private void LogDebug(string message)
+        {
+            if (Config.DebugMode)
+            {
+                this.Monitor.Log(message, LogLevel.Debug);
+            }
+        }
+    }
+}

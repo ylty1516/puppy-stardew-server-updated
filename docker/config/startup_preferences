@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<StartupPreferences xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <startMuted>false</startMuted>
+  <levelTenFishing>false</levelTenFishing>
+  <levelTenMining>false</levelTenMining>
+  <levelTenForaging>false</levelTenForaging>
+  <levelTenCombat>false</levelTenCombat>
+  <skipWindowPreparation>false</skipWindowPreparation>
+  <sawAdvancedCharacterCreationIndicator>false</sawAdvancedCharacterCreationIndicator>
+  <timesPlayed>0</timesPlayed>
+  <windowMode>0</windowMode>
+  <displayIndex>0</displayIndex>
+  <gamepadMode>Auto</gamepadMode>
+  <playerLimit>-1</playerLimit>
+  <fullscreenResolutionX>1280</fullscreenResolutionX>
+  <fullscreenResolutionY>720</fullscreenResolutionY>
+  <lastEnteredIP />
+  <languageCode>en</languageCode>
+  <clientOptions>
+    <fullscreen>true</fullscreen>
+    <windowedBorderlessFullscreen>false</windowedBorderlessFullscreen>
+    <preferredResolutionX>1280</preferredResolutionX>
+    <preferredResolutionY>720</preferredResolutionY>
+    <zoomLevel>1</zoomLevel>
+    <uiScale>-1</uiScale>
+    <vsyncEnabled>true</vsyncEnabled>
+    <hardwareCursor>false</hardwareCursor>
+    <showClearBackgrounds>false</showClearBackgrounds>
+    <pauseWhenOutOfFocus>true</pauseWhenOutOfFocus>
+    <pinToolbarToggle>false</pinToolbarToggle>
+    <mouseControls>false</mouseControls>
+    <gamepadControls>false</gamepadControls>
+    <musicVolumeLevel>0.75</musicVolumeLevel>
+    <soundVolumeLevel>1</soundVolumeLevel>
+    <ipConnectionsEnabled>true</ipConnectionsEnabled>
+    <enableServer>true</enableServer>
+    <enableFarmhandCreation>true</enableFarmhandCreation>
+  </clientOptions>
+</StartupPreferences>

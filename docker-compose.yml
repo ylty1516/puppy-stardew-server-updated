@@ -1,0 +1,249 @@
+# ============================================
+# IMPORTANT: Run init.sh before first start!
+# 重要：首次启动前请运行 init.sh！
+#
+# ./init.sh
+#
+# This sets up data directories with correct
+# permissions (UID 1000:1000) to avoid disk
+# write failures during game download.
+#
+# 此脚本创建数据目录并设置正确的权限
+# (UID 1000:1000)，避免游戏下载时的磁盘
+# 写入失败。
+# ============================================
+
+services:
+  stardew-manager:
+    build: ./docker/manager
+    image: puppy-stardew-manager:local
+    container_name: puppy-stardew-manager
+    restart: unless-stopped
+    environment:
+      - PROJECT_DIR=${PWD}
+      - COMPOSE_FILE=${PWD}/docker-compose.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:${PWD}:ro
+
+  # Init container: fixes permissions before main server starts
+  # 初始化容器：在主服务器启动前修复权限
+  stardew-init:
+    build: ./docker
+    image: puppy-stardew-server:local
+    container_name: puppy-stardew-init
+    user: root
+    entrypoint: ["/home/steam/scripts/init-container.sh"]
+    environment:
+      - USE_GPU=${USE_GPU:-false}
+    volumes:
+      - ./data/saves:/home/steam/.config/StardewValley:rw
+      - ./data/game:/home/steam/stardewvalley:rw
+      - ./data/steam:/home/steam/Steam:rw
+      - ./data/logs:/home/steam/.local/share/puppy-stardew/logs:rw
+      - ./data/backups:/home/steam/.local/share/puppy-stardew/backups:rw
+      - ./data/panel:/home/steam/web-panel/data:rw
+
+  stardew-server:
+    build: ./docker
+    image: puppy-stardew-server:local
+    container_name: puppy-stardew
+    restart: unless-stopped  # Keep running after Steam Guard
+    depends_on:
+      stardew-manager:
+        condition: service_started
+      stardew-init:
+        condition: service_completed_successfully
+    # Interactive mode for Steam Guard
+    # Steam Guard 交互模式
+    stdin_open: true
+    tty: true
+
+    # Environment variables (configured in .env file)
+    # 环境变量（在 .env 文件中配置）
+    environment:
+      # Steam credentials - REQUIRED
+      # Steam 凭证 - 必需
+      - STEAM_USERNAME=${STEAM_USERNAME}
+      - STEAM_PASSWORD=${STEAM_PASSWORD}
+
+      # Steam Guard code - OPTIONAL (for easier first-time auth)
+      # Steam Guard 验证码 - 可选（简化首次验证）
+      - STEAM_GUARD_CODE=${STEAM_GUARD_CODE:-}
+
+      # VNC settings - OPTIONAL (for first-time setup)
+      # VNC 设置 - 可选（用于首次设置）
+      - ENABLE_VNC=${ENABLE_VNC:-true}
+      # Leave blank to auto-generate a random password at startup
+      # (written to web-panel/data/vnc_password.txt inside the container).
+      - VNC_PASSWORD=${VNC_PASSWORD:-}
+
+      # Log monitoring - OPTIONAL (default: enabled)
+      # 日志监控 - 可选（默认：启用）
+      - ENABLE_LOG_MONITOR=${ENABLE_LOG_MONITOR:-true}
+      - LOG_MONITOR_INTERVAL=${LOG_MONITOR_INTERVAL:-5}
+      - LOG_MONITOR_BATCH_SIZE=${LOG_MONITOR_BATCH_SIZE:-500}
+
+      # GPU rendering - OPTIONAL (default: false)
+      # GPU 渲染 - 可选（默认：禁用）
+      - USE_GPU=${USE_GPU:-false}
+
+      # Display resolution - OPTIONAL (default: 1280x720@60Hz)
+      # 显示分辨率 - 可选（默认：1280x720@60Hz）
+      - RESOLUTION_WIDTH=${RESOLUTION_WIDTH:-1280}
+      - RESOLUTION_HEIGHT=${RESOLUTION_HEIGHT:-720}
+      - REFRESH_RATE=${REFRESH_RATE:-60}
+
+      # Performance optimization - OPTIONAL (default: disabled)
+      # 性能优化 - 可选（默认：禁用）
+      - LOW_PERF_MODE=${LOW_PERF_MODE:-false}
+      - TARGET_FPS=${TARGET_FPS:-}
+
+      # Auto-backup - OPTIONAL (default: disabled)
+      # 自动备份 - 可选（默认：禁用）
+      - ENABLE_AUTO_BACKUP=${ENABLE_AUTO_BACKUP:-false}
+      - MAX_BACKUPS=${MAX_BACKUPS:-7}
+      - BACKUP_HOUR=${BACKUP_HOUR:-4}
+      - BACKUP_COMPRESSION_LEVEL=${BACKUP_COMPRESSION_LEVEL:-1}
+
+      # Crash auto-restart - OPTIONAL (default: disabled)
+      # 崩溃自动重启 - 可选（默认：禁用）
+      - ENABLE_CRASH_RESTART=${ENABLE_CRASH_RESTART:-false}
+      - MAX_CRASH_RESTARTS=${MAX_CRASH_RESTARTS:-5}
+
+      # Save selection - OPTIONAL (default: auto-detect)
+      # 存档选择 - 可选（默认：自动检测）
+      - SAVE_NAME=${SAVE_NAME:-}
+
+      # Public join IP shown in dashboard - OPTIONAL
+      # 仪表盘显示的公网联机 IP - 可选
+      - PUBLIC_IP=${PUBLIC_IP:-}
+      - MANAGER_URL=${MANAGER_URL:-http://stardew-manager:18700}
+
+    # Port mappings
+    # 端口映射
+    ports:
+      # Game server port (REQUIRED)
+      # 游戏服务器端口（必需）
+      - "24642:24642/udp"
+
+      # VNC port (OPTIONAL - only needed for initial setup)
+      # VNC 端口（可选 - 仅首次设置需要）
+      - "${VNC_BIND_HOST:-0.0.0.0}:5900:5900/tcp"
+
+      # Prometheus metrics port (OPTIONAL - for monitoring)
+      # Prometheus 指标端口（可选 - 用于监控）
+      - "9090:9090/tcp"
+
+      # Web management panel (OPTIONAL - for web-based control)
+      # Web 管理面板（可选 - 用于网页控制）
+      - "18642:18642/tcp"
+
+    # Persistent data volumes (bind mounts)
+    # 持久化数据卷（绑定挂载）
+    #
+    # IMPORTANT: Data directories must be owned by UID 1000
+    # 重要：数据目录必须归 UID 1000 所有
+    #
+    # Run this before starting: mkdir -p data/{saves,game,steam,logs} && chown -R 1000:1000 data/
+    # 启动前运行：mkdir -p data/{saves,game,steam,logs} && chown -R 1000:1000 data/
+    volumes:
+      - ./data/saves:/home/steam/.config/StardewValley:rw
+      - ./data/game:/home/steam/stardewvalley:rw
+      - ./data/steam:/home/steam/Steam:rw
+      - ./data/logs:/home/steam/.local/share/puppy-stardew/logs:rw
+      - ./data/backups:/home/steam/.local/share/puppy-stardew/backups:rw
+      - ./data/panel:/home/steam/web-panel/data:rw
+      # Custom mods volume (OPTIONAL - place your mods here)
+      # 自定义模组卷（可选 - 将您的模组放在这里）
+      # Supports: mod directories or .zip files
+      # 支持：模组目录或 .zip 文件
+      - ./data/custom-mods:/home/steam/custom-mods:rw
+
+    # GPU device mapping (OPTIONAL - only needed if USE_GPU=true)
+    # GPU 设备映射（可选 - 仅当 USE_GPU=true 时需要）
+    #
+    # Uncomment to enable GPU hardware acceleration:
+    # 取消注释以启用 GPU 硬件加速：
+    # devices:
+    #   - /dev/dri:/dev/dri
+
+    # Resource limits
+    # 资源限制
+    #
+    # Adjust based on your server specs:
+    # 根据服务器规格调整：
+    # - 2GB RAM server: Set memory to 1.5G
+    # - 4GB RAM server: Keep at 2G
+    # - 8GB+ RAM server: Can increase to 4G for 8+ players
+    #
+    # - 2GB 内存服务器：设置内存为 1.5G
+    # - 4GB 内存服务器：保持 2G
+    # - 8GB+ 内存服务器：8+ 玩家时可增加到 4G
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          memory: 1G
+
+    # Health check
+    # 健康检查
+    #
+    # Checks if SMAPI is running every 30 seconds
+    # 每 30 秒检查 SMAPI 是否运行
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "StardewModdingAPI"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s  # Give 3 minutes for startup
+
+    # Security options - reduce container privileges
+    # 安全选项 - 减少容器权限
+    #
+    # Drop unnecessary Linux capabilities
+    # 丢弃不必要的 Linux 功能
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+      - MKNOD
+
+    # Logging configuration (prevents log files from growing too large)
+    # 日志配置（防止日志文件过大）
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# No named volumes - using bind mounts for easier backup and management
+# 不使用命名卷 - 使用绑定挂载以便于备份和管理
+
+# ============================================
+# Docker Secrets (OPTIONAL - more secure alternative to .env)
+# Docker Secrets（可选 - 比 .env 更安全的替代方案）
+#
+# To use secrets instead of .env:
+# 使用 secrets 代替 .env：
+#
+# 1. Create secret files:
+#    echo "your_username" > secrets/steam_username.txt
+#    echo "your_password" > secrets/steam_password.txt
+#    chmod 600 secrets/*.txt
+#
+# 2. Uncomment the secrets sections below and in stardew-server
+# 3. Remove STEAM_USERNAME and STEAM_PASSWORD from environment
+#
+# secrets:
+#   steam_username:
+#     file: ./secrets/steam_username.txt
+#   steam_password:
+#     file: ./secrets/steam_password.txt
+#
+# Then add to stardew-server service:
+#   secrets:
+#     - steam_username
+#     - steam_password
+# ============================================

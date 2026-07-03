@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Puppy Stardew Server</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <script>
+    (() => {
+      const savedTheme = localStorage.getItem('panel_theme');
+      const theme = savedTheme === 'light' || savedTheme === 'dark'
+        ? savedTheme
+        : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <symbol id="icon-dog" viewBox="0 0 100 100">
+      <image href="/favicon.png" x="0" y="0" width="100" height="100"/>
+    </symbol>
+    <symbol id="icon-dashboard" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M13.5 8.183V4.817q0-.357.234-.587t.58-.23h4.88q.347 0 .576.23t.23.587v3.366q0 .358-.234.587q-.234.23-.58.23h-4.88q-.346 0-.576-.23t-.23-.587M4 11.2V4.8q0-.34.234-.57t.58-.23h4.88q.347 0 .576.23t.23.57v6.4q0 .34-.234.57t-.58.23h-4.88q-.346 0-.576-.23T4 11.2m9.5 8v-6.4q0-.34.234-.57t.58-.23h4.88q.347 0 .576.23t.23.57v6.4q0 .34-.234.57t-.58.23h-4.88q-.346 0-.576-.23t-.23-.57M4 19.183v-3.366q0-.357.234-.587t.58-.23h4.88q.347 0 .576.23t.23.587v3.366q0 .358-.234.587q-.234.23-.58.23h-4.88q-.346 0-.576-.23T4 19.183M5 11h4.5V5H5zm9.5 8H19v-6h-4.5zm0-11H19V5h-4.5zM5 19h4.5v-3H5zm4.5-3" />
+    </symbol>
+    <symbol id="icon-logs" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 4.5h8l2 2v12.5H6V6.5Z" />
+        <path d="M10 4.5v3h4v-3" />
+        <path d="M9 11h6" />
+        <path d="M9 15h6" />
+      </g>
+    </symbol>
+    <symbol id="icon-terminal" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 6.5h15v11h-15Z" />
+        <path d="m8 10 2.5 2-2.5 2" />
+        <path d="M12.5 15.5h3.5" />
+      </g>
+    </symbol>
+    <symbol id="icon-players" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11a2.7 2.7 0 1 0 0-5.4A2.7 2.7 0 0 0 9 11Z" />
+        <path d="M16.5 10a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Z" />
+        <path d="M4.8 18.5c.6-2.6 2.5-4 4.7-4s4.2 1.4 4.7 4" />
+        <path d="M13.8 18.5c.5-1.9 1.9-3 3.8-3 1.3 0 2.4.5 3.1 1.6" />
+      </g>
+    </symbol>
+    <symbol id="icon-player" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+        <path d="M6.5 19c.8-2.7 2.9-4 5.5-4s4.7 1.3 5.5 4" />
+        <path d="M8.5 6.2 12 4.5l3.5 1.7" />
+      </g>
+    </symbol>
+    <symbol id="icon-saves" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 5.5h10l2 2V19H6Z" />
+        <path d="M9 5.5v4h5v-4" />
+        <path d="M9 19v-5h6v5" />
+      </g>
+    </symbol>
+    <symbol id="icon-config" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+        <path d="M8.73 21.499c1.293-2.223 4.252-2.485 5.937-.786c.377.38.566.57.733.592s1.215-.578 1.587-.792c.38-.217 1.432-.82 1.498-.979c.066-.157-.003-.427-.142-.965c-.503-1.957.718-4.017 2.668-4.548c.522-.142.783-.213.886-.349S22 12.341 22 11.904s0-1.633-.103-1.769s-.364-.207-.886-.349c-1.95-.531-3.172-2.59-2.67-4.548c.14-.538.208-.807.142-.965s-1.118-.761-1.497-.979c-.372-.213-1.42-.815-1.588-.792c-.167.023-.355.213-.732.592a3.775 3.775 0 0 1-5.333 0c-.377-.38-.566-.57-.733-.592s-1.215.579-1.587.792c-.38.218-1.432.821-1.498.979s.003.427.142.965c.503 1.957-.718 4.017-2.668 4.548c-.522.142-.783.213-.886.35C2 10.27 2 11.465 2 11.903s0 1.632.103 1.768s.364.207.886.35q.009 0 .018.004" />
+        <path d="M2.489 18.183c1.08-1.08 4.752-4.714 5.112-5.134c.38-.444.072-1.044.256-2.903c.088-.9.282-1.573.836-2.075c.66-.624 1.2-.624 3.06-.666c1.62.042 1.812-.138 1.98.282c.12.3-.24.48-.672.96c-.96.96-1.524 1.44-1.578 1.74c-.39 1.319 1.146 2.098 1.986 1.258c.318-.317 1.788-1.799 1.932-1.919c.108-.096.366-.091.492.06c.108.106.12.12.108.6c-.011.444-.006 1.082-.005 1.74c.002.851-.043 1.799-.403 2.278c-.72 1.08-1.92 1.14-3 1.188c-1.02.06-1.86-.048-2.124.144c-.216.108-1.356 1.307-2.736 2.687l-2.46 2.459c-2.04 1.62-4.284-.9-2.784-2.7Z" />
+      </g>
+    </symbol>
+    <symbol id="icon-mods" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 5.5c0-1 1-1.8 2.2-1.8S13.5 4.5 13.5 5.5c0 .7-.3 1.2-.8 1.6h2.1c1.8 0 3.2 1.4 3.2 3.2v1.6h-2.4c-1 0-1.8.8-1.8 1.8s.8 1.8 1.8 1.8H18V18c0 1.8-1.4 3.2-3.2 3.2h-2.1c.5-.4.8-.9.8-1.6 0-1-.9-1.8-2.3-1.8S9 18.6 9 19.6c0 .7.3 1.2.8 1.6H7.7A3.2 3.2 0 0 1 4.5 18v-2.5H7c1 0 1.8-.8 1.8-1.8S8 11.9 7 11.9H4.5v-1.6c0-1.8 1.4-3.2 3.2-3.2h2.1c-.5-.4-.8-.9-.8-1.6Z" />
+      </g>
+    </symbol>
+    <symbol id="icon-globe" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M3.8 12h16.4" />
+        <path d="M12 3.5c2 2 3.1 5 3.1 8.5S14 18.5 12 20.5c-2-2-3.1-5-3.1-8.5S10 5.5 12 3.5Z" />
+      </g>
+    </symbol>
+    <symbol id="icon-github" viewBox="0 0 256 256">
+      <rect width="256" height="256" fill="none" />
+      <g fill="none">
+        <rect width="256" height="256" fill="#242938" rx="60" />
+        <path fill="#fff" d="M128.001 30C72.779 30 28 74.77 28 130.001c0 44.183 28.653 81.667 68.387 94.89c4.997.926 6.832-2.169 6.832-4.81c0-2.385-.093-10.262-.136-18.618c-27.82 6.049-33.69-11.799-33.69-11.799c-4.55-11.559-11.104-14.632-11.104-14.632c-9.073-6.207.684-6.079.684-6.079c10.042.705 15.33 10.305 15.33 10.305c8.919 15.288 23.394 10.868 29.1 8.313c.898-6.464 3.489-10.875 6.349-13.372c-22.211-2.529-45.56-11.104-45.56-49.421c0-10.918 3.906-19.839 10.303-26.842c-1.039-2.519-4.462-12.69.968-26.464c0 0 8.398-2.687 27.508 10.25c7.977-2.215 16.531-3.326 25.03-3.364c8.498.038 17.06 1.149 25.051 3.365c19.087-12.939 27.473-10.25 27.473-10.25c5.443 13.773 2.019 23.945.98 26.463c6.412 7.003 10.292 15.924 10.292 26.842c0 38.409-23.394 46.866-45.662 49.341c3.587 3.104 6.783 9.189 6.783 18.519c0 13.38-.116 24.149-.116 27.443c0 2.661 1.8 5.779 6.869 4.797C199.383 211.64 228 174.169 228 130.001C228 74.771 183.227 30 128.001 30M65.454 172.453c-.22.497-1.002.646-1.714.305c-.726-.326-1.133-1.004-.898-1.502c.215-.512.999-.654 1.722-.311c.727.326 1.141 1.01.89 1.508m4.919 4.389c-.477.443-1.41.237-2.042-.462c-.654-.697-.777-1.629-.293-2.078c.491-.442 1.396-.235 2.051.462c.654.706.782 1.631.284 2.078m3.374 5.616c-.613.426-1.615.027-2.234-.863c-.613-.889-.613-1.955.013-2.383c.621-.427 1.608-.043 2.236.84c.611.904.611 1.971-.015 2.406m5.707 6.504c-.548.604-1.715.442-2.57-.383c-.874-.806-1.118-1.95-.568-2.555c.555-.606 1.729-.435 2.59.383c.868.804 1.133 1.957.548 2.555m7.376 2.195c-.242.784-1.366 1.14-2.499.807c-1.13-.343-1.871-1.26-1.642-2.052c.235-.788 1.364-1.159 2.505-.803c1.13.341 1.871 1.252 1.636 2.048m8.394.932c.028.824-.932 1.508-2.121 1.523c-1.196.027-2.163-.641-2.176-1.452c0-.833.939-1.51 2.134-1.53c1.19-.023 2.163.639 2.163 1.459m8.246-.316c.143.804-.683 1.631-1.864 1.851c-1.161.212-2.236-.285-2.383-1.083c-.144-.825.697-1.651 1.856-1.865c1.183-.205 2.241.279 2.391 1.097" />
+      </g>
+    </symbol>
+    <symbol id="icon-theme-light" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2.5v2.2" />
+        <path d="M12 19.3v2.2" />
+        <path d="m4.9 4.9 1.6 1.6" />
+        <path d="m17.5 17.5 1.6 1.6" />
+        <path d="M2.5 12h2.2" />
+        <path d="M19.3 12h2.2" />
+        <path d="m4.9 19.1 1.6-1.6" />
+        <path d="m17.5 6.5 1.6-1.6" />
+      </g>
+    </symbol>
+    <symbol id="icon-theme-dark" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18.5 14.5a6.8 6.8 0 1 1-9-9 7.6 7.6 0 0 0 9 9Z" />
+      </g>
+    </symbol>
+    <symbol id="icon-logout" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 5.5H5.5v13H9" />
+        <path d="M13 8.5 18 12l-5 3.5" />
+        <path d="M18 12H8" />
+      </g>
+    </symbol>
+    <symbol id="icon-menu" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4.5 7h15" />
+        <path d="M4.5 12h15" />
+        <path d="M4.5 17h15" />
+      </g>
+    </symbol>
+    <symbol id="icon-loader" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 4.5a7.5 7.5 0 1 0 7 4.8" />
+        <path d="M18 4.5h1.5V8" />
+      </g>
+    </symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="8.5" />
+        <path d="M12 7.5v5l3 1.8" />
+      </g>
+    </symbol>
+    <symbol id="icon-calendar" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5.5 7.5h13v11h-13Z" />
+        <path d="M8 4.5v3" />
+        <path d="M16 4.5v3" />
+        <path d="M5.5 10.5h13" />
+        <path d="M9 14h2" />
+      </g>
+    </symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18.5 9.5a7 7 0 0 0-11.7-2" />
+        <path d="M6.8 3.8v4.3h4.4" />
+        <path d="M5.5 14.5a7 7 0 0 0 11.8 2" />
+        <path d="M17.2 20.2v-4.3h-4.4" />
+      </g>
+    </symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5.5v9" />
+        <path d="m8.5 11.5 3.5 3.5 3.5-3.5" />
+        <path d="M5 18.5h14" />
+      </g>
+    </symbol>
+    <symbol id="icon-trash" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6.5 7.5h11" />
+        <path d="M9.5 7.5V5.3h5V7.5" />
+        <path d="M8 7.5 9 18.5h6l1-11" />
+      </g>
+    </symbol>
+    <symbol id="icon-sprout" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19.5v-7" />
+        <path d="M12 12.5c0-3.2 2.2-5.6 5.5-6-0.2 3.6-2.3 5.9-5.5 6Z" />
+        <path d="M12 14c0-2.6-1.8-4.5-4.8-4.9.2 2.9 2 4.7 4.8 4.9Z" />
+      </g>
+    </symbol>
+    <symbol id="icon-package" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m12 4.5 7 3.5v8L12 19.5 5 16V8Z" />
+        <path d="M12 4.5 5 8l7 3.5L19 8" />
+        <path d="M12 11.5v8" />
+      </g>
+    </symbol>
+    <symbol id="icon-eye" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12Z" />
+        <circle cx="12" cy="12" r="3" />
+      </g>
+    </symbol>
+    <symbol id="icon-eye-off" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+        <path d="m14.12 14.12a3 3 0 1 1-4.24-4.24" />
+        <path d="m1 1 22 22" />
+      </g>
+    </symbol>
+    <symbol id="icon-alert-triangle" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m10.29 3.86-8.8 14.5A2 2 0 0 0 3.18 21h17.64a2 2 0 0 0 1.69-2.64l-8.8-14.5a2 2 0 0 0-3.42 0Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </g>
+    </symbol>
+  </svg>
+
+  <div id="app" style="display:none;">
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <span class="logo-mark"><svg class="icon"><use href="#icon-dog"></use></svg></span>
+        <span class="logo-text">Puppy Stardew</span>
+      </div>
+      <ul class="nav-menu">
+        <li class="nav-item active" data-page="dashboard">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-dashboard"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.dashboard">Dashboard</span>
+        </li>
+        <li class="nav-item" data-page="logs">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-logs"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.logs">Logs</span>
+        </li>
+        <li class="nav-item" data-page="terminal">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-terminal"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.terminal">Terminal</span>
+        </li>
+        <li class="nav-item" data-page="players">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-players"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.players">Players</span>
+        </li>
+        <li class="nav-item" data-page="saves">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-saves"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.saves">Saves</span>
+        </li>
+        <li class="nav-item" data-page="config">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-config"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.config">Config</span>
+        </li>
+        <li class="nav-item" data-page="mods">
+          <span class="nav-icon"><svg class="icon"><use href="#icon-mods"></use></svg></span>
+          <span class="nav-label" data-i18n="nav.mods">Mods</span>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <button class="btn-icon" id="themeToggle" type="button">
+          <svg class="icon"><use href="#icon-theme-light"></use></svg>
+        </button>
+        <button class="btn-icon" id="langToggle" type="button" data-i18n-title="lang.toggle">
+          <svg class="icon"><use href="#icon-globe"></use></svg>
+        </button>
+        <button class="btn-icon" id="logoutBtn" type="button" data-i18n-title="logout.title">
+          <svg class="icon"><use href="#icon-logout"></use></svg>
+        </button>
+      </div>
+    </nav>
+
+    <nav id="mobile-nav">
+      <button class="mob-nav-item active" type="button" data-page="dashboard"><svg class="icon"><use href="#icon-dashboard"></use></svg></button>
+      <button class="mob-nav-item" type="button" data-page="logs"><svg class="icon"><use href="#icon-logs"></use></svg></button>
+      <button class="mob-nav-item" type="button" data-page="terminal"><svg class="icon"><use href="#icon-terminal"></use></svg></button>
+      <button class="mob-nav-item" type="button" data-page="players"><svg class="icon"><use href="#icon-players"></use></svg></button>
+      <button class="mob-nav-item" type="button" data-page="saves"><svg class="icon"><use href="#icon-saves"></use></svg></button>
+      <button class="mob-nav-item" type="button" data-page="config"><svg class="icon"><use href="#icon-config"></use></svg></button>
+      <button class="mob-nav-item" type="button" data-page="mods"><svg class="icon"><use href="#icon-mods"></use></svg></button>
+    </nav>
+
+    <main id="content">
+      <header id="topbar">
+        <button id="menuToggle" class="btn-icon mobile-only" type="button">
+          <svg class="icon"><use href="#icon-menu"></use></svg>
+        </button>
+        <h2 id="pageTitle">Dashboard</h2>
+        <div class="topbar-right">
+          <span id="serverStatus" class="status-badge checking">
+            <span class="status-dot checking" aria-hidden="true"></span>
+            <span data-i18n="status.checking">Checking...</span>
+          </span>
+          <a class="btn-icon" href="https://github.com/AmigaMeow/puppy-stardew-server" target="_blank" rel="noopener noreferrer" data-i18n-title="github.open" aria-label="GitHub">
+            <svg class="icon"><use href="#icon-github"></use></svg>
+          </a>
+        </div>
+      </header>
+
+      <div id="page-container">
+        <section id="page-dashboard" class="page active">
+          <div class="cards-grid">
+            <div class="card stat-card">
+              <div class="stat-icon" id="stat-status-icon"><svg class="icon icon-spin"><use href="#icon-loader"></use></svg></div>
+              <div class="stat-info">
+                <div class="stat-value" id="stat-status">Checking...</div>
+                <div class="stat-label" data-i18n="dash.status">Server Status</div>
+              </div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-icon"><svg class="icon"><use href="#icon-players"></use></svg></div>
+              <div class="stat-info">
+                <div class="stat-value" id="stat-players">-/-</div>
+                <div class="stat-label" data-i18n="dash.players">Online Players</div>
+              </div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-icon"><svg class="icon"><use href="#icon-clock"></use></svg></div>
+              <div class="stat-info">
+                <div class="stat-value" id="stat-uptime">--</div>
+                <div class="stat-label" data-i18n="dash.uptime">Uptime</div>
+              </div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-icon"><svg class="icon"><use href="#icon-calendar"></use></svg></div>
+              <div class="stat-info">
+                <div class="stat-value" id="stat-day">--</div>
+                <div class="stat-label" data-i18n="dash.gameDay">Game Day</div>
+              </div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-icon"><svg class="icon"><use href="#icon-saves"></use></svg></div>
+              <div class="stat-info">
+                <div class="stat-value" id="stat-backups">--</div>
+                <div class="stat-label" data-i18n="dash.backups">Backups</div>
+              </div>
+            </div>
+            <div class="card stat-card">
+              <div class="stat-icon"><svg class="icon"><use href="#icon-mods"></use></svg></div>
+              <div class="stat-info">
+                <div class="stat-value" id="stat-mods">--</div>
+                <div class="stat-label" data-i18n="dash.mods">Loaded Mods</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" id="resources-card">
+            <h3 data-i18n="dash.resources">System Resources</h3>
+            <div class="resource-bar">
+              <div class="resource-header">
+                <span>CPU</span>
+                <span id="cpu-value">--%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="cpu-bar" style="width:0%"></div>
+              </div>
+            </div>
+            <div class="resource-bar">
+              <div class="resource-header">
+                <span>RAM</span>
+                <span id="ram-value">-- / -- MB</span>
+              </div>
+              <div class="progress-bar">
+                <div class="progress-fill" id="ram-bar" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 data-i18n="dash.details">Server Details</h3>
+            <div class="details-grid">
+              <div class="detail-item">
+                <div class="detail-label" data-i18n="dash.joinIp">Join IP</div>
+                <div class="detail-value" id="detail-join-ip">--</div>
+                <div class="detail-note" data-i18n="dash.joinHint">In-game usually only needs the IP address.</div>
+              </div>
+              <div class="detail-item">
+                <div class="detail-label" data-i18n="dash.joinPort">Join Port</div>
+                <div class="detail-value" id="detail-join-port">24642/UDP</div>
+                <div class="detail-note" data-i18n="dash.portHint">Do not append the port in Stardew's join field.</div>
+              </div>
+              <div class="detail-item">
+                <div class="detail-label" data-i18n="dash.localIps">Container IPs</div>
+                <div class="detail-value" id="detail-local-ips">--</div>
+              </div>
+              <div class="detail-item">
+                <div class="detail-label" data-i18n="dash.version">Version</div>
+                <div class="detail-value" id="detail-version">--</div>
+              </div>
+              <div class="detail-item">
+                <div class="detail-label" data-i18n="dash.scriptHealth">Automation</div>
+                <div class="detail-value" id="detail-script-health">--</div>
+              </div>
+              <div class="detail-item">
+                <div class="detail-label" data-i18n="dash.metricsPort">Metrics Port</div>
+                <div class="detail-value" id="detail-metrics-port">--</div>
+              </div>
+              <div class="detail-item detail-item-wide">
+                <div class="detail-label" data-i18n="dash.events">Automation Events</div>
+                <div class="detail-stats">
+                  <span><strong id="detail-event-passout">0</strong> <span data-i18n="dash.passout">Passout</span></span>
+                  <span><strong id="detail-event-readycheck">0</strong> <span data-i18n="dash.readyCheck">Ready Check</span></span>
+                  <span><strong id="detail-event-offline">0</strong> <span data-i18n="dash.offlineEvents">Offline Recovery</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3 data-i18n="dash.quickActions">Quick Actions</h3>
+            <div class="action-buttons">
+              <button class="btn btn-primary" type="button" onclick="navigateTo('logs')">
+                <svg class="icon"><use href="#icon-logs"></use></svg>
+                <span data-i18n="dash.viewLogs">View Logs</span>
+              </button>
+              <button class="btn btn-warning" type="button" onclick="restartServer()">
+                <svg class="icon"><use href="#icon-refresh"></use></svg>
+                <span data-i18n="dash.restart">Restart Server</span>
+              </button>
+              <button class="btn btn-success backup-action-btn" type="button" onclick="createBackup()" data-backup-label-key="dash.backup">
+                <svg class="icon"><use href="#icon-saves"></use></svg>
+                <span data-i18n="dash.backup">Backup Now</span>
+              </button>
+            </div>
+            <div id="dashboardBackupStatus" class="backup-status" style="display:none"></div>
+          </div>
+        </section>
+
+        <section id="page-logs" class="page">
+          <div class="card">
+            <div class="logs-toolbar">
+              <div class="log-filters">
+                <button class="log-filter active" type="button" data-filter="all" data-i18n="logs.all">All</button>
+                <button class="log-filter" type="button" data-filter="error" data-i18n="logs.errors">Errors</button>
+                <button class="log-filter" type="button" data-filter="diagnostic" data-i18n="logs.diagnostics">Diagnostics</button>
+                <button class="log-filter" type="button" data-filter="mod" data-i18n="logs.mods">Mods</button>
+                <button class="log-filter" type="button" data-filter="server" data-i18n="logs.server">Server</button>
+                <button class="log-filter" type="button" data-filter="game" data-i18n="logs.game">Game</button>
+              </div>
+              <div class="log-search">
+                <input type="text" id="logSearch" data-i18n-placeholder="logs.search" placeholder="Search logs..." />
+              </div>
+              <div class="log-controls">
+                <button class="btn btn-sm" id="logAutoScroll" type="button" data-i18n-title="logs.auto">
+                  <svg class="icon"><use href="#icon-download"></use></svg>
+                  <span data-i18n="logs.auto">Auto</span>
+                </button>
+                <button class="btn btn-sm" id="logClear" type="button" data-i18n-title="logs.clear">
+                  <svg class="icon"><use href="#icon-trash"></use></svg>
+                  <span data-i18n="logs.clear">Clear</span>
+                </button>
+              </div>
+            </div>
+            <div id="logMeta" class="log-meta"></div>
+            <div id="logDiagnostics" class="diagnostics-panel" hidden></div>
+            <div id="logOutput" class="log-output"></div>
+          </div>
+        </section>
+
+        <section id="page-terminal" class="page">
+          <div class="card">
+            <div class="terminal-toolbar">
+              <span data-i18n="term.title">SMAPI Console (Not a System Shell)</span>
+              <div>
+                <button class="btn btn-sm btn-success" id="termConnect" type="button" onclick="terminalConnect()" data-i18n="term.connect">Connect</button>
+                <button class="btn btn-sm btn-danger" id="termDisconnect" type="button" onclick="terminalDisconnect()" style="display:none" data-i18n="term.disconnect">Disconnect</button>
+              </div>
+            </div>
+            <div id="termOutput" class="terminal-output">
+              <div class="terminal-hint" data-i18n="term.hint">Click "Connect" to attach to the running SMAPI process. This is for SMAPI commands and Steam Guard codes, not Linux shell commands.</div>
+            </div>
+            <div class="terminal-input-row">
+              <input type="text" id="termInput" data-i18n-placeholder="term.input" placeholder="Type a SMAPI command or Steam Guard code..." disabled
+                     onkeydown="if(event.key==='Enter')terminalSend()">
+              <button class="btn btn-primary" id="termSendBtn" type="button" onclick="terminalSend()" disabled data-i18n="term.send">Send</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-players" class="page">
+          <div class="card">
+            <h3 data-i18n="players.title">Online Players</h3>
+            <div id="playersList" class="players-list">
+              <div class="empty-state" data-i18n="players.loading">Loading...</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-saves" class="page">
+          <div class="card">
+            <div class="section-header">
+              <h3 data-i18n="saves.title">Save Files</h3>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary btn-sm" type="button" onclick="document.getElementById('saveFileInput').click()">
+                  <svg class="icon"><use href="#icon-package"></use></svg>
+                  <span data-i18n="saves.upload">Upload Save</span>
+                </button>
+                <button class="btn btn-success btn-sm backup-action-btn" type="button" onclick="createBackup()" data-backup-label-key="saves.backupNow">
+                  <svg class="icon"><use href="#icon-saves"></use></svg>
+                  <span data-i18n="saves.backupNow">Backup Now</span>
+                </button>
+              </div>
+            </div>
+            <div class="save-upload-panel">
+              <input type="file" id="saveFileInput" accept=".zip" style="display:none" onchange="handleSaveUpload(this)">
+              <label class="save-upload-option">
+                <input type="checkbox" id="saveUploadSetDefault" checked>
+                <span data-i18n="saves.setDefaultAfterUpload">Set imported save as default</span>
+              </label>
+              <div class="save-upload-hint" data-i18n="saves.uploadHint">Upload a Stardew Valley save zip. The panel will validate it, extract it, and you can restart the container to auto-load it.</div>
+              <div id="saveUploadStatus" class="save-upload-status"></div>
+            </div>
+            <div id="savesBackupStatus" class="backup-status" style="display:none"></div>
+            <div id="savesList" class="saves-list">
+              <div class="empty-state" data-i18n="players.loading">Loading...</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="section-header">
+              <h3 data-i18n="saves.backups">Backups</h3>
+            </div>
+            <div id="backupsList" class="saves-list">
+              <div class="empty-state" data-i18n="players.loading">Loading...</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-config" class="page">
+          <div id="configContainer"></div>
+          <div class="card" style="margin-top:16px;">
+            <div class="section-header">
+              <h3 data-i18n="config.password">Change Panel Password</h3>
+            </div>
+            <div class="form-row">
+              <input type="password" id="oldPassword" class="input" data-i18n-placeholder="config.currentPassword" placeholder="Current password" />
+              <input type="password" id="newPassword" class="input" data-i18n-placeholder="config.newPassword" placeholder="New password" />
+              <button class="btn btn-primary" type="button" onclick="changePassword()" data-i18n="config.update">Update</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-mods" class="page">
+          <div class="card">
+            <h3 data-i18n="mods.title">Installed Mods</h3>
+            <div id="modsList" class="mods-list">
+              <div class="empty-state" data-i18n="players.loading">Loading...</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Restart confirmation modal -->
+  <div id="restartModal" class="modal-overlay" style="display:none;">
+    <div class="modal-dialog">
+      <div class="modal-icon">
+        <svg class="icon" style="width:32px;height:32px;color:var(--accent-warn)"><use href="#icon-alert-triangle"></use></svg>
+      </div>
+      <h3 id="restartModalTitle">Restart Required</h3>
+      <p id="restartModalMessage">Configuration has been saved. Restart the server for changes to take effect.</p>
+      <div class="modal-actions">
+        <button class="btn btn-sm" id="restartLaterBtn" type="button" onclick="closeRestartModal()" style="background:var(--bg-tertiary);color:var(--text-primary)">Later</button>
+        <button class="btn btn-sm btn-warning" id="restartNowBtn" type="button" onclick="confirmRestart()">Restart Now</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

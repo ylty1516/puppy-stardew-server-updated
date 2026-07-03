@@ -1,0 +1,16 @@
+{
+  "Enabled": true,
+  "AutoHideOnLoad": true,
+  "AutoHideDaily": true,
+  "PauseWhenEmpty": false,
+  "InstantSleepWhenReady": true,
+  "HideMethod": "warp",
+  "WarpLocation": "Desert",
+  "WarpX": 0,
+  "WarpY": 0,
+  "DebugMode": true,
+  "PreventHostFarmWarp": true,
+  "PeerConnectGuardSeconds": 60,
+  "RehideDelayTicks": 1,
+  "DebugTraceMenus": false
+}

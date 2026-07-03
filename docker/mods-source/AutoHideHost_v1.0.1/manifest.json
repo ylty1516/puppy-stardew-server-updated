@@ -1,0 +1,10 @@
+{
+  "Name": "AutoHideHost",
+  "Author": "AI Developer",
+  "Version": "1.2.2",
+  "Description": "Automatically hides the host player in multiplayer servers and provides seamless day-night transitions without waiting prompts. v1.2.2: Disabled LevelUpMenu auto-handling to prevent unintended skill upgrades.",
+  "UniqueID": "AIdev.AutoHideHost",
+  "EntryDll": "AutoHideHost.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}
