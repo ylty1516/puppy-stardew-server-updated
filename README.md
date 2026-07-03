@@ -23,11 +23,13 @@
 
 ## 玩家 Mod 包
 
-如果你在面板里上传了内容类或客户端也需要安装的 SMAPI Mod，玩家本地没有对应 Mod 时，可能会出现无法进入、内容缺失、报错或多人状态不一致的问题。面板的“模组”页面现在提供“下载玩家 Mod 包”按钮，会把玩家可能需要安装的自定义/内容类 Mod 打成 `stardew-client-mods.zip`。
+如果你在面板里上传了内容类或客户端也需要安装的 SMAPI Mod，玩家本地没有对应 Mod 时，可能会出现无法进入、内容缺失、报错或多人状态不一致的问题。面板上传或删除 Mod 后会自动整合玩家下载包，并生成 `stardew-client-mods.zip`。
 
 内置的服务器控制 Mod（例如 AutoHideHost、ServerAutoLoad、Always On Server、Skill Level Guard）会被自动排除，不需要玩家单独安装。
 
 单人背包暂停需要玩家本地安装内置的 `ylty Single Player Pause Reporter`。它会被自动放进“下载玩家 Mod 包”里，只负责上报玩家是否打开背包，不修改玩家存档。
+
+玩家只需要在面板“模组”页面点击“下载玩家 Mod 包”，解压后把里面的 Mod 文件夹放进自己本地的 Stardew Valley `Mods` 目录。下载接口会优先使用已自动整理好的缓存包；如果缓存包缺失或过期，会在下载时自动重建。
 
 ## 自动空服暂停
 

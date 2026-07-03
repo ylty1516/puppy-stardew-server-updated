@@ -141,10 +141,15 @@ const translations = {
     'mods.uploadFallback': '模组压缩包已上传，但自动安装失败。重启后仍会尝试从压缩包安装。',
     'mods.deleteNeedsRestart': '模组已删除。重启服务器后将完全卸载。',
     'mods.clientPack': '下载玩家 Mod 包',
-    'mods.clientPackHint': '会打包玩家本地可能需要安装的自定义/内容类 Mod，服务器专用 Mod 会自动排除。',
+    'mods.clientPackHint': '上传或删除 Mod 后会自动整合玩家下载包，服务器专用 Mod 会自动排除。',
     'mods.clientRequired': '玩家需安装',
     'mods.serverOnly': '服务器专用',
     'mods.clientPackEmpty': '当前没有需要玩家本地安装的 Mod。',
+    'mods.clientPackReady': '玩家下载包已整理：{count} 个 Mod。',
+    'mods.clientPackStale': '玩家下载包需要刷新，点击下载时会自动重建。',
+    'mods.clientPackMissing': '玩家下载包会在上传 Mod 后自动生成。',
+    'mods.clientPackRebuilt': '玩家下载包已自动更新。',
+    'mods.clientPackBuildFail': '玩家下载包自动整理失败：{reason}',
     'toast.modUploadOk': '模组上传成功！重启服务器后生效。', 'toast.modUploadFail': '模组上传失败',
     'toast.modDeleteOk': '模组已删除', 'toast.modDeleteFail': '模组删除失败',
     'toast.modClientPackOk': '玩家 Mod 包已开始下载。',
@@ -276,10 +281,15 @@ const translations = {
     'mods.uploadFallback': 'Mod archive uploaded, but automatic installation failed. Restart may still install it from the archive.',
     'mods.deleteNeedsRestart': 'Mod deleted. Restart the server to fully unload it.',
     'mods.clientPack': 'Download Client Mod Pack',
-    'mods.clientPackHint': 'Packages custom/content mods players may need locally. Server-only mods are excluded.',
+    'mods.clientPackHint': 'Uploads and deletes automatically rebuild the client download pack. Server-only mods are excluded.',
     'mods.clientRequired': 'Client required',
     'mods.serverOnly': 'Server only',
     'mods.clientPackEmpty': 'No client-side mods need to be downloaded.',
+    'mods.clientPackReady': 'Client pack ready: {count} mod(s).',
+    'mods.clientPackStale': 'Client pack needs refresh; download will rebuild it automatically.',
+    'mods.clientPackMissing': 'Client pack will be generated automatically after uploading mods.',
+    'mods.clientPackRebuilt': 'Client mod pack was updated automatically.',
+    'mods.clientPackBuildFail': 'Client mod pack rebuild failed: {reason}',
     'toast.modUploadOk': 'Mod uploaded! Restart server to apply.', 'toast.modUploadFail': 'Mod upload failed',
     'toast.modDeleteOk': 'Mod deleted', 'toast.modDeleteFail': 'Mod delete failed',
     'toast.modClientPackOk': 'Client mod pack download started.',
@@ -1548,6 +1558,7 @@ async function loadMods() {
       <div class="mod-upload-copy">
         <span class="mod-upload-hint">${t('mods.uploadHint')}</span>
         <span class="mod-upload-hint">${t('mods.clientPackHint')}</span>
+        <span class="mod-upload-hint">${formatClientPackStatus(data.clientPack)}</span>
         <span id="modUploadStatus" class="mod-upload-status"></span>
       </div>
     </div>
@@ -1653,29 +1664,65 @@ async function downloadClientModPack() {
 
 function getModUploadToast(data) {
   if (data && data.success) {
+    var clientPackText = getClientPackResultText(data.clientPack);
     if (data.hasManifest) {
-      return t('mods.uploadInstalled');
+      return appendSentence(t('mods.uploadInstalled'), clientPackText);
     }
     if (data.noManifest) {
-      return t('mods.uploadNoManifest');
+      return appendSentence(t('mods.uploadNoManifest'), clientPackText);
     }
     if (data.autoInstallFailed) {
-      return data.installError
+      var fallback = data.installError
         ? t('mods.uploadFallback') + ' ' + data.installError
         : t('mods.uploadFallback');
+      return appendSentence(fallback, clientPackText);
     }
-    return t('toast.modUploadOk');
+    return appendSentence(t('toast.modUploadOk'), clientPackText);
   }
 
   return t('toast.modUploadOk');
 }
 
 function getModDeleteToast(data) {
+  var clientPackText = getClientPackResultText(data?.clientPack);
   if (data && data.success && data.needsRestart) {
-    return t('mods.deleteNeedsRestart');
+    return appendSentence(t('mods.deleteNeedsRestart'), clientPackText);
   }
 
-  return t('toast.modDeleteOk');
+  return appendSentence(t('toast.modDeleteOk'), clientPackText);
+}
+
+function formatClientPackStatus(clientPack) {
+  if (!clientPack) return t('mods.clientPackMissing');
+  if (clientPack.error || clientPack.cause) {
+    return tf('mods.clientPackBuildFail', {
+      reason: clientPack.cause || clientPack.error,
+    });
+  }
+  if (clientPack.available) {
+    return tf('mods.clientPackReady', { count: clientPack.modCount || 0 });
+  }
+  if (clientPack.stale) {
+    return t('mods.clientPackStale');
+  }
+  return t('mods.clientPackMissing');
+}
+
+function getClientPackResultText(clientPack) {
+  if (!clientPack) return '';
+  if (clientPack.error || clientPack.cause) {
+    return tf('mods.clientPackBuildFail', {
+      reason: clientPack.cause || clientPack.error,
+    });
+  }
+  if (clientPack.rebuilt) {
+    return t('mods.clientPackRebuilt');
+  }
+  return '';
+}
+
+function appendSentence(base, extra) {
+  return extra ? `${base} ${extra}` : base;
 }
 
 // ─── Actions ─────────────────────────────────────────────────────

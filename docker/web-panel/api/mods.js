@@ -14,6 +14,9 @@ const GAME_MODS_DIR = path.join(config.GAME_DIR, 'Mods');
 const PREINSTALLED_MODS_DIR = '/home/steam/preinstalled-mods';
 const METADATA_SUFFIX = '.panel-meta.json';
 const CLIENT_PACK_FILENAME = 'stardew-client-mods.zip';
+const CLIENT_PACK_DIR = path.join(config.DATA_DIR, 'client-packs');
+const CLIENT_PACK_PATH = path.join(CLIENT_PACK_DIR, CLIENT_PACK_FILENAME);
+const CLIENT_PACK_METADATA_PATH = path.join(CLIENT_PACK_DIR, 'stardew-client-mods.json');
 const CLIENT_REQUIRED_MOD_IDS = new Set([
   'ylty.SinglePlayerPauseReporter',
 ]);
@@ -52,6 +55,24 @@ function runCommand(command, args, options = {}) {
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function getTreeMtimeMs(targetPath) {
+  let maxMtime = 0;
+  const visit = (itemPath) => {
+    const stat = fs.statSync(itemPath);
+    maxMtime = Math.max(maxMtime, stat.mtimeMs);
+    if (!stat.isDirectory()) {
+      return;
+    }
+
+    for (const child of fs.readdirSync(itemPath)) {
+      visit(path.join(itemPath, child));
+    }
+  };
+
+  visit(targetPath);
+  return Math.round(maxMtime);
 }
 
 function readManifest(modDir, fallbackName) {
@@ -272,7 +293,7 @@ function getMods(req, res) {
     }
   } catch (e) {}
 
-  res.json({ mods, total: mods.length });
+  res.json({ mods, total: mods.length, clientPack: getClientPackStatus() });
 }
 
 function getClientPackEntries() {
@@ -317,33 +338,184 @@ function getClientPackEntries() {
   return packEntries.sort((a, b) => a.folder.localeCompare(b.folder));
 }
 
+function getClientPackSnapshot(entries) {
+  return entries.map(entry => ({
+    folder: entry.folder,
+    id: entry.id,
+    version: entry.version,
+    mtimeMs: getTreeMtimeMs(path.join(GAME_MODS_DIR, entry.folder)),
+  }));
+}
+
+function readClientPackMetadata() {
+  try {
+    if (!fs.existsSync(CLIENT_PACK_METADATA_PATH)) {
+      return null;
+    }
+    return JSON.parse(fs.readFileSync(CLIENT_PACK_METADATA_PATH, 'utf-8'));
+  } catch (error) {
+    return null;
+  }
+}
+
+function isClientPackCurrent(metadata, entries) {
+  if (!metadata || !fs.existsSync(CLIENT_PACK_PATH)) {
+    return false;
+  }
+
+  try {
+    return JSON.stringify(metadata.sources || []) === JSON.stringify(getClientPackSnapshot(entries));
+  } catch (error) {
+    return false;
+  }
+}
+
+function removeClientPackFiles() {
+  fs.rmSync(CLIENT_PACK_PATH, { force: true });
+  fs.rmSync(CLIENT_PACK_METADATA_PATH, { force: true });
+}
+
+function getSafeClientPackEntryCount() {
+  try {
+    return getClientPackEntries().length;
+  } catch (error) {
+    return 0;
+  }
+}
+
+function getClientPackStatus() {
+  try {
+    const entries = getClientPackEntries();
+    const metadata = readClientPackMetadata();
+    const current = isClientPackCurrent(metadata, entries);
+    const zipExists = fs.existsSync(CLIENT_PACK_PATH);
+    const zipStat = zipExists ? fs.statSync(CLIENT_PACK_PATH) : null;
+
+    return {
+      available: entries.length > 0 && zipExists && current,
+      stale: entries.length > 0 && zipExists && !current,
+      filename: CLIENT_PACK_FILENAME,
+      modCount: entries.length,
+      mods: entries,
+      size: zipStat ? zipStat.size : 0,
+      rebuiltAt: metadata?.rebuiltAt || '',
+    };
+  } catch (error) {
+    return {
+      available: false,
+      stale: false,
+      filename: CLIENT_PACK_FILENAME,
+      modCount: 0,
+      mods: [],
+      size: 0,
+      rebuiltAt: '',
+      error: error.message,
+      cause: error.cause || '',
+      details: error.details || '',
+      action: error.action || 'Check game Mods directory permissions and refresh the Mods page.',
+    };
+  }
+}
+
+function rebuildClientPack(reason = 'manual') {
+  ensureDir(CLIENT_PACK_DIR);
+
+  const entries = getClientPackEntries();
+  if (entries.length === 0) {
+    removeClientPackFiles();
+    return {
+      available: false,
+      rebuilt: true,
+      filename: CLIENT_PACK_FILENAME,
+      modCount: 0,
+      mods: [],
+      reason,
+    };
+  }
+
+  const tempZip = path.join(CLIENT_PACK_DIR, `${CLIENT_PACK_FILENAME}.tmp-${process.pid}-${Date.now()}`);
+  fs.rmSync(tempZip, { force: true });
+
+  try {
+    const zipTargets = entries.map(entry => `./${entry.folder}`);
+    runCommand('zip', ['-qr', tempZip, ...zipTargets], {
+      cwd: GAME_MODS_DIR,
+      timeout: 180000,
+    });
+
+    fs.renameSync(tempZip, CLIENT_PACK_PATH);
+
+    const metadata = {
+      filename: CLIENT_PACK_FILENAME,
+      rebuiltAt: new Date().toISOString(),
+      reason,
+      modCount: entries.length,
+      mods: entries,
+      sources: getClientPackSnapshot(entries),
+      size: fs.statSync(CLIENT_PACK_PATH).size,
+    };
+    fs.writeFileSync(CLIENT_PACK_METADATA_PATH, JSON.stringify(metadata, null, 2), 'utf-8');
+
+    return {
+      available: true,
+      rebuilt: true,
+      filename: CLIENT_PACK_FILENAME,
+      modCount: entries.length,
+      mods: entries,
+      size: metadata.size,
+      rebuiltAt: metadata.rebuiltAt,
+      reason,
+    };
+  } catch (error) {
+    fs.rmSync(tempZip, { force: true });
+    throw error;
+  }
+}
+
+function safeRebuildClientPack(reason) {
+  try {
+    return rebuildClientPack(reason);
+  } catch (error) {
+    return {
+      available: false,
+      rebuilt: false,
+      filename: CLIENT_PACK_FILENAME,
+      modCount: getSafeClientPackEntryCount(),
+      error: error.message,
+      cause: error.cause || '',
+      details: error.details || '',
+      action: error.action || 'Check that zip is installed and the web-panel data directory is writable.',
+    };
+  }
+}
+
+function getOrRebuildClientPack(reason) {
+  const entries = getClientPackEntries();
+  const metadata = readClientPackMetadata();
+  if (isClientPackCurrent(metadata, entries)) {
+    return {
+      available: entries.length > 0,
+      rebuilt: false,
+      filename: CLIENT_PACK_FILENAME,
+      modCount: entries.length,
+      mods: entries,
+      size: fs.existsSync(CLIENT_PACK_PATH) ? fs.statSync(CLIENT_PACK_PATH).size : 0,
+      rebuiltAt: metadata?.rebuiltAt || '',
+    };
+  }
+
+  return rebuildClientPack(reason);
+}
+
 /**
  * GET /api/mods/client-pack
  * Download a zip containing only mods that players may need locally.
  */
 function downloadClientPack(req, res) {
-  const packEntries = getClientPackEntries();
-
-  if (packEntries.length === 0) {
-    return sendError(res, req, new AppError('No client-side mods need packaging', {
-      status: 404,
-      code: 'MOD_CLIENT_PACK_EMPTY',
-      cause: 'The server currently has no custom or content mods that players need to install locally.',
-      action: 'Upload a client/content mod first, or let players use the server without an extra mod pack.',
-    }));
-  }
-
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'puppy-client-mods-'));
-  const zipPath = path.join(tempDir, CLIENT_PACK_FILENAME);
-
+  let clientPack;
   try {
-    const zipTargets = packEntries.map(entry => `./${entry.folder}`);
-    runCommand('zip', ['-qr', zipPath, ...zipTargets], {
-      cwd: GAME_MODS_DIR,
-      timeout: 180000,
-    });
+    clientPack = getOrRebuildClientPack('download');
   } catch (error) {
-    fs.rmSync(tempDir, { recursive: true, force: true });
     return sendError(res, req, error, {
       status: 500,
       code: 'MOD_CLIENT_PACK_CREATE_FAILED',
@@ -354,9 +526,18 @@ function downloadClientPack(req, res) {
     });
   }
 
-  res.setHeader('X-Client-Mod-Count', String(packEntries.length));
-  res.download(zipPath, CLIENT_PACK_FILENAME, (error) => {
-    fs.rmSync(tempDir, { recursive: true, force: true });
+  if (!clientPack.available) {
+    return sendError(res, req, new AppError('No client-side mods need packaging', {
+      status: 404,
+      code: 'MOD_CLIENT_PACK_EMPTY',
+      cause: 'The server currently has no custom or content mods that players need to install locally.',
+      action: 'Upload a client/content mod first, or let players use the server without an extra mod pack.',
+    }));
+  }
+
+  res.setHeader('X-Client-Mod-Count', String(clientPack.modCount));
+  res.setHeader('X-Client-Pack-Rebuilt', clientPack.rebuilt ? 'true' : 'false');
+  res.download(CLIENT_PACK_PATH, CLIENT_PACK_FILENAME, (error) => {
     if (error && !res.headersSent) {
       return sendError(res, req, error, {
         status: 500,
@@ -454,6 +635,7 @@ function uploadMod(req, res) {
         }, null, 2));
       }
 
+      const clientPack = safeRebuildClientPack('upload');
       res.json({
         success: true,
         message: installResult.hasManifest
@@ -466,9 +648,11 @@ function uploadMod(req, res) {
         autoInstallFailed: false,
         needsRestart: true,
         installedFolders: installResult.installedFolders,
+        clientPack,
       });
     } catch (e) {
       fs.rmSync(metadataPath, { force: true });
+      const clientPack = safeRebuildClientPack('upload-install-failed');
       res.json({
         success: true,
         message: 'Mod archive uploaded, but automatic installation failed. Restart may still install it from the archive.',
@@ -480,6 +664,7 @@ function uploadMod(req, res) {
         installError: e.cause || e.message,
         installDetails: e.details || '',
         needsRestart: true,
+        clientPack,
       });
     }
   } catch (e) {
@@ -560,7 +745,8 @@ function deleteMod(req, res) {
       fs.rmSync(target, { recursive: true, force: true });
     }
 
-    res.json({ success: true, message: 'Mod deleted successfully', needsRestart: true });
+    const clientPack = safeRebuildClientPack('delete');
+    res.json({ success: true, message: 'Mod deleted successfully', needsRestart: true, clientPack });
   } catch (e) {
     return sendError(res, req, e, {
       status: 500,
