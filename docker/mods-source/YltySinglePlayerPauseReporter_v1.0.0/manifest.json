@@ -1,0 +1,10 @@
+{
+  "Name": "ylty Single Player Pause Reporter",
+  "Author": "ylty",
+  "Version": "1.0.0",
+  "Description": "Reports farmhand backpack menu state to ylty's Stardew co-op server panel so the server can pause time when exactly one real player is online.",
+  "UniqueID": "ylty.SinglePlayerPauseReporter",
+  "EntryDll": "YltySinglePlayerPauseReporter.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

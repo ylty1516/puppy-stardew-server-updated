@@ -8,6 +8,8 @@
   "AutoPauseStartupGraceSeconds": 45,
   "AutoResumeOnPlayerJoin": true,
   "AutoPausePollTicks": 60,
+  "PauseWhenSingleFarmhandOpensMenu": true,
+  "SingleFarmhandMenuPauseTimeoutSeconds": 10,
   "InstantSleepWhenReady": true,
   "HideMethod": "warp",
   "WarpLocation": "Desert",

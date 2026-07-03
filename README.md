@@ -12,6 +12,7 @@
 - 星露谷风格主题界面，支持亮色/暗色模式
 - 日志页支持错误筛选、诊断卡片和准确错误原因提示
 - 真正可用的自动空服暂停：无人在线后延迟冻结游戏时间，玩家连入时自动恢复
+- 单个真实玩家打开背包时自动暂停游戏时间（房主不计入人数，需要玩家安装本地上报 Mod）
 - 手动暂停/恢复游戏内时间，适合临时等人、查在线人数或处理联机状态
 - 任意在线玩家进入节日地点时，可由服务器房主自动代理触发节日
 - 存档上传、默认存档选择、备份下载和手动备份
@@ -25,6 +26,8 @@
 如果你在面板里上传了内容类或客户端也需要安装的 SMAPI Mod，玩家本地没有对应 Mod 时，可能会出现无法进入、内容缺失、报错或多人状态不一致的问题。面板的“模组”页面现在提供“下载玩家 Mod 包”按钮，会把玩家可能需要安装的自定义/内容类 Mod 打成 `stardew-client-mods.zip`。
 
 内置的服务器控制 Mod（例如 AutoHideHost、ServerAutoLoad、Always On Server、Skill Level Guard）会被自动排除，不需要玩家单独安装。
+
+单人背包暂停需要玩家本地安装内置的 `ylty Single Player Pause Reporter`。它会被自动放进“下载玩家 Mod 包”里，只负责上报玩家是否打开背包，不修改玩家存档。
 
 ## 自动空服暂停
 
@@ -91,6 +94,23 @@ autohide_pause_time off
 autohide_pause_time toggle
 autohide_pause_time status
 ```
+
+## 单人背包自动暂停
+
+当真实在线玩家数正好为 1 时，玩家打开背包菜单会自动冻结游戏时间；关闭背包后恢复。这里的“玩家”不包含隐藏房主。
+
+这个功能需要该玩家本地安装 `ylty Single Player Pause Reporter`，因为远程玩家的背包菜单是客户端本地 UI，服务器不能凭空知道。面板“模组”页面下载的玩家 Mod 包会包含这个上报 Mod。
+
+服务端可在 `Mods/AutoHideHost/config.json` 中调整：
+
+```json
+{
+  "PauseWhenSingleFarmhandOpensMenu": true,
+  "SingleFarmhandMenuPauseTimeoutSeconds": 10
+}
+```
+
+如果有 0 个真实玩家、2 个及以上真实玩家、玩家没安装上报 Mod、正在保存/过夜/事件中，服务器不会触发这个暂停。
 
 ## 任意玩家触发节日
 

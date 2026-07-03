@@ -14,6 +14,12 @@ const GAME_MODS_DIR = path.join(config.GAME_DIR, 'Mods');
 const PREINSTALLED_MODS_DIR = '/home/steam/preinstalled-mods';
 const METADATA_SUFFIX = '.panel-meta.json';
 const CLIENT_PACK_FILENAME = 'stardew-client-mods.zip';
+const CLIENT_REQUIRED_MOD_IDS = new Set([
+  'ylty.SinglePlayerPauseReporter',
+]);
+const CLIENT_REQUIRED_MOD_FOLDERS = new Set([
+  'YltySinglePlayerPauseReporter',
+]);
 const SERVER_ONLY_MOD_IDS = new Set([
   'AIdev.AutoHideHost',
   'puppystardew.ServerAutoLoad',
@@ -97,6 +103,10 @@ function getMetadataPath(baseName) {
 
 function isServerOnlyMod(manifest, folder, preinstalledFolders = new Set()) {
   const uniqueId = manifest && manifest.id;
+  if (CLIENT_REQUIRED_MOD_IDS.has(uniqueId) || CLIENT_REQUIRED_MOD_FOLDERS.has(folder)) {
+    return false;
+  }
+
   return SERVER_ONLY_MOD_IDS.has(uniqueId) ||
     SERVER_ONLY_MOD_FOLDERS.has(folder) ||
     preinstalledFolders.has(folder);

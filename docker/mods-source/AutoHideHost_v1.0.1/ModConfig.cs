@@ -11,6 +11,8 @@ namespace AutoHideHost
         public int AutoPauseStartupGraceSeconds { get; set; } = 45;
         public bool AutoResumeOnPlayerJoin { get; set; } = true;
         public int AutoPausePollTicks { get; set; } = 60;
+        public bool PauseWhenSingleFarmhandOpensMenu { get; set; } = true;
+        public int SingleFarmhandMenuPauseTimeoutSeconds { get; set; } = 10;
         public bool InstantSleepWhenReady { get; set; } = true;
         public string HideMethod { get; set; } = "warp";
         public string WarpLocation { get; set; } = "Desert";

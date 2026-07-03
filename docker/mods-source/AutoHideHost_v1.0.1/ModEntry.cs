@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,6 +15,9 @@ namespace AutoHideHost
     /// <summary>AutoHideHost 模组主入口 - v1.2.2: 完全禁用LevelUpMenu自动处理</summary>
     public class ModEntry : Mod
     {
+        private const string ClientPauseReporterModId = "ylty.SinglePlayerPauseReporter";
+        private const string BackpackStateMessageType = "BackpackState";
+
         private ModConfig Config;
         private bool isHostHidden = false;
         private bool hasTriggeredSleep = false;
@@ -46,6 +50,13 @@ namespace AutoHideHost
         private string autoPauseReason = "world_not_ready";
         private int autoPauseLastOnlinePlayers = 0;
         private string autoPauseControlError = "";
+        private readonly Dictionary<long, ClientBackpackState> clientBackpackStates = new Dictionary<long, ClientBackpackState>();
+        private bool singleFarmhandMenuPauseApplied = false;
+        private string singleFarmhandMenuPauseState = "not_ready";
+        private string singleFarmhandMenuPauseReason = "world_not_ready";
+        private long singleFarmhandMenuPausePlayerId = 0;
+        private string singleFarmhandMenuPausePlayerName = "";
+        private string singleFarmhandMenuPauseMenuType = "";
         private string lastAutomationType = "";
         private bool lastAutomationSuccess = false;
         private string lastAutomationMessage = "";
@@ -69,6 +80,8 @@ namespace AutoHideHost
 
             // v1.1.8: 守护窗口机制
             helper.Events.Multiplayer.PeerConnected += OnPeerConnected;  // 玩家连接时启动守护窗口
+            helper.Events.Multiplayer.PeerDisconnected += OnPeerDisconnected;
+            helper.Events.Multiplayer.ModMessageReceived += OnModMessageReceived;
             helper.Events.Player.Warped += OnWarped;  // 监控房主传送
 
             RegisterCommands();
@@ -89,6 +102,13 @@ namespace AutoHideHost
             autoPauseApplied = false;
             autoPauseState = autoPauseEnabled ? "startup_grace" : "disabled";
             autoPauseReason = autoPauseEnabled ? "waiting_for_multiplayer_ready" : "disabled";
+            clientBackpackStates.Clear();
+            singleFarmhandMenuPauseApplied = false;
+            singleFarmhandMenuPauseState = Config.PauseWhenSingleFarmhandOpensMenu ? "waiting" : "disabled";
+            singleFarmhandMenuPauseReason = Config.PauseWhenSingleFarmhandOpensMenu ? "waiting_for_client_reporter" : "disabled";
+            singleFarmhandMenuPausePlayerId = 0;
+            singleFarmhandMenuPausePlayerName = "";
+            singleFarmhandMenuPauseMenuType = "";
             this.Monitor.Log("存档已加载，3秒后检查 Always On Server 状态", LogLevel.Info);
 
             if (Config.AutoHideOnLoad)
@@ -106,6 +126,8 @@ namespace AutoHideHost
             hasTriggeredSleep = false;
             isSleepInProgress = false;
             handledReadyCheck = false;  // v1.4.0: 重置ReadyCheck标志
+            clientBackpackStates.Clear();
+            ResetSingleFarmhandMenuPauseState("waiting", "new_day");
 
             // v1.2.0: 重置事件跳过标志
             lastSkippedEventId = null;
@@ -482,6 +504,7 @@ namespace AutoHideHost
             if (e.Ticks % Math.Max(15, Config.AutoPausePollTicks) == 0)
             {
                 CheckAndAutoPause();
+                CheckAndSingleFarmhandMenuPause();
             }
         }
 
@@ -604,11 +627,175 @@ namespace AutoHideHost
 
         private int CountOnlineFarmhands()
         {
+            return GetOnlineFarmhands().Count;
+        }
+
+        private List<Farmer> GetOnlineFarmhands()
+        {
             if (!Context.IsWorldReady || Game1.player == null)
-                return 0;
+                return new List<Farmer>();
 
             return Game1.getOnlineFarmers()
-                .Count(f => f != null && f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID);
+                .Where(f => f != null && f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID)
+                .ToList();
+        }
+
+        private void CheckAndSingleFarmhandMenuPause()
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled)
+            {
+                ResetSingleFarmhandMenuPauseState("not_ready", "main_player_not_ready");
+                return;
+            }
+
+            if (!Context.IsWorldReady)
+            {
+                ResetSingleFarmhandMenuPauseState("not_ready", "world_not_ready");
+                return;
+            }
+
+            if (!Config.PauseWhenSingleFarmhandOpensMenu)
+            {
+                ResumeSingleFarmhandMenuPause("feature_disabled");
+                singleFarmhandMenuPauseState = "disabled";
+                singleFarmhandMenuPauseReason = "disabled";
+                return;
+            }
+
+            var onlineFarmhands = GetOnlineFarmhands();
+            if (onlineFarmhands.Count != 1)
+            {
+                ResumeSingleFarmhandMenuPause($"online_farmhands:{onlineFarmhands.Count}");
+                singleFarmhandMenuPauseState = onlineFarmhands.Count == 0 ? "waiting" : "multiple_players";
+                singleFarmhandMenuPauseReason = onlineFarmhands.Count == 0 ? "no_farmhand_online" : $"online_farmhands:{onlineFarmhands.Count}";
+                singleFarmhandMenuPausePlayerId = 0;
+                singleFarmhandMenuPausePlayerName = "";
+                singleFarmhandMenuPauseMenuType = "";
+                return;
+            }
+
+            Farmer farmhand = onlineFarmhands[0];
+            long playerId = farmhand.UniqueMultiplayerID;
+            if (!clientBackpackStates.TryGetValue(playerId, out ClientBackpackState state))
+            {
+                ResumeSingleFarmhandMenuPause($"no_client_report:{playerId}");
+                singleFarmhandMenuPauseState = "waiting_for_client";
+                singleFarmhandMenuPauseReason = "client_reporter_required";
+                singleFarmhandMenuPausePlayerId = playerId;
+                singleFarmhandMenuPausePlayerName = farmhand.Name ?? "";
+                singleFarmhandMenuPauseMenuType = "";
+                return;
+            }
+
+            double ageSeconds = (DateTime.UtcNow - state.UpdatedAt).TotalSeconds;
+            if (ageSeconds > Math.Max(3, Config.SingleFarmhandMenuPauseTimeoutSeconds))
+            {
+                ResumeSingleFarmhandMenuPause($"stale_client_report:{Math.Floor(ageSeconds)}s");
+                singleFarmhandMenuPauseState = "stale_client";
+                singleFarmhandMenuPauseReason = $"client_report_stale:{Math.Floor(ageSeconds)}s";
+                singleFarmhandMenuPausePlayerId = playerId;
+                singleFarmhandMenuPausePlayerName = farmhand.Name ?? state.PlayerName ?? "";
+                singleFarmhandMenuPauseMenuType = state.MenuType ?? "";
+                return;
+            }
+
+            singleFarmhandMenuPausePlayerId = playerId;
+            singleFarmhandMenuPausePlayerName = farmhand.Name ?? state.PlayerName ?? "";
+            singleFarmhandMenuPauseMenuType = state.MenuType ?? "";
+
+            if (!state.BackpackOpen)
+            {
+                ResumeSingleFarmhandMenuPause("backpack_closed");
+                singleFarmhandMenuPauseState = "closed";
+                singleFarmhandMenuPauseReason = "backpack_closed";
+                return;
+            }
+
+            if (ReadManualPauseFlag())
+            {
+                singleFarmhandMenuPauseState = "manual_pause";
+                singleFarmhandMenuPauseReason = "manual_pause_has_priority";
+                return;
+            }
+
+            if (!IsSingleFarmhandMenuPauseSafe(out string unsafeReason))
+            {
+                singleFarmhandMenuPauseState = "blocked";
+                singleFarmhandMenuPauseReason = unsafeReason;
+                return;
+            }
+
+            singleFarmhandMenuPauseState = "paused";
+            singleFarmhandMenuPauseReason = "single_farmhand_backpack_open";
+            if (!Game1.paused)
+            {
+                Game1.paused = true;
+                singleFarmhandMenuPauseApplied = true;
+                SetLastAutomation("singleFarmhandMenuPause", true, $"{singleFarmhandMenuPausePlayerName}:{singleFarmhandMenuPauseMenuType}");
+                this.Monitor.Log($"[单人背包暂停] 真实在线玩家只有 {singleFarmhandMenuPausePlayerName}，检测到背包打开，游戏时间已冻结", LogLevel.Info);
+            }
+            else if (singleFarmhandMenuPauseApplied)
+            {
+                singleFarmhandMenuPauseReason = "single_farmhand_backpack_still_open";
+            }
+        }
+
+        private bool IsSingleFarmhandMenuPauseSafe(out string reason)
+        {
+            reason = "";
+
+            if (!Game1.IsServer || Game1.server == null)
+            {
+                reason = "multiplayer_not_ready";
+                return false;
+            }
+
+            if (Game1.game1 != null && Game1.game1.IsSaving)
+            {
+                reason = "saving";
+                return false;
+            }
+
+            if (isSleepInProgress || needToSleep || Game1.saveOnNewDay)
+            {
+                reason = "sleep_or_day_transition";
+                return false;
+            }
+
+            if (Game1.CurrentEvent != null)
+            {
+                reason = "event_active";
+                return false;
+            }
+
+            return true;
+        }
+
+        private void ResetSingleFarmhandMenuPauseState(string state, string reason)
+        {
+            if (singleFarmhandMenuPauseApplied)
+                ResumeSingleFarmhandMenuPause(reason);
+
+            singleFarmhandMenuPauseState = state;
+            singleFarmhandMenuPauseReason = reason;
+            singleFarmhandMenuPausePlayerId = 0;
+            singleFarmhandMenuPausePlayerName = "";
+            singleFarmhandMenuPauseMenuType = "";
+        }
+
+        private void ResumeSingleFarmhandMenuPause(string reason)
+        {
+            if (!singleFarmhandMenuPauseApplied)
+                return;
+
+            singleFarmhandMenuPauseApplied = false;
+
+            if (Game1.paused && !ReadManualPauseFlag() && !autoPauseApplied)
+            {
+                Game1.paused = false;
+                SetLastAutomation("singleFarmhandMenuPause", true, $"resumed:{reason}");
+                this.Monitor.Log($"[单人背包暂停] {reason}，游戏时间已恢复", LogLevel.Info);
+            }
         }
 
         private bool IsAutoPauseEnabled()
@@ -753,7 +940,7 @@ namespace AutoHideHost
             autoPauseApplied = false;
             autoPauseEmptySince = null;
 
-            if ((force || Config.AutoResumeOnPlayerJoin) && Game1.paused && !ReadManualPauseFlag())
+            if ((force || Config.AutoResumeOnPlayerJoin) && Game1.paused && !ReadManualPauseFlag() && !singleFarmhandMenuPauseApplied)
             {
                 Game1.paused = false;
                 hasTriggeredSleep = false;
@@ -822,16 +1009,16 @@ namespace AutoHideHost
             }
             else
             {
-                if (manualPauseApplied && Game1.paused && !autoPauseApplied)
+                if (manualPauseApplied && Game1.paused && !autoPauseApplied && !singleFarmhandMenuPauseApplied)
                 {
                     Game1.paused = false;
                     SetLastAutomation("manualPause", true, "disabled");
                     this.Monitor.Log("面板手动暂停已关闭：游戏内时间继续流动", LogLevel.Info);
                 }
-                else if (manualPauseApplied && autoPauseApplied)
+                else if (manualPauseApplied && (autoPauseApplied || singleFarmhandMenuPauseApplied))
                 {
-                    SetLastAutomation("manualPause", true, "disabled_auto_pause_still_active");
-                    this.Monitor.Log("面板手动暂停已关闭，但自动暂停仍在保持空服冻结", LogLevel.Info);
+                    SetLastAutomation("manualPause", true, "disabled_other_pause_still_active");
+                    this.Monitor.Log("面板手动暂停已关闭，但其他自动暂停仍在保持游戏时间冻结", LogLevel.Info);
                 }
                 manualPauseApplied = false;
             }
@@ -970,6 +1157,26 @@ namespace AutoHideHost
                     $"\"controlError\":{JsonString(autoPauseControlError)}," +
                     $"\"emptySince\":{(autoPauseEmptySince.HasValue ? JsonString(autoPauseEmptySince.Value.ToString("O")) : "null")}" +
                     "}";
+                bool singleMenuClientFresh = false;
+                if (singleFarmhandMenuPausePlayerId != 0
+                    && clientBackpackStates.TryGetValue(singleFarmhandMenuPausePlayerId, out ClientBackpackState menuState))
+                {
+                    singleMenuClientFresh = (DateTime.UtcNow - menuState.UpdatedAt).TotalSeconds
+                        <= Math.Max(3, Config.SingleFarmhandMenuPauseTimeoutSeconds);
+                }
+                string singleFarmhandMenuPauseJson = "{" +
+                    $"\"enabled\":{JsonBool(Config.PauseWhenSingleFarmhandOpensMenu)}," +
+                    $"\"applied\":{JsonBool(singleFarmhandMenuPauseApplied)}," +
+                    $"\"state\":{JsonString(singleFarmhandMenuPauseState)}," +
+                    $"\"reason\":{JsonString(singleFarmhandMenuPauseReason)}," +
+                    $"\"onlineFarmhands\":{CountOnlineFarmhands()}," +
+                    $"\"playerId\":{JsonString(singleFarmhandMenuPausePlayerId == 0 ? "" : singleFarmhandMenuPausePlayerId.ToString())}," +
+                    $"\"playerName\":{JsonString(singleFarmhandMenuPausePlayerName)}," +
+                    $"\"menuType\":{JsonString(singleFarmhandMenuPauseMenuType)}," +
+                    $"\"clientFresh\":{JsonBool(singleMenuClientFresh)}," +
+                    $"\"timeoutSeconds\":{Math.Max(3, Config.SingleFarmhandMenuPauseTimeoutSeconds)}," +
+                    $"\"clientModId\":{JsonString(ClientPauseReporterModId)}" +
+                    "}";
 
                 var json = new StringBuilder();
                 json.Append("{\n");
@@ -996,6 +1203,7 @@ namespace AutoHideHost
                 json.Append($"  \"hostHidden\": {JsonBool(isHostHidden)},\n");
                 json.Append($"  \"sleepInProgress\": {JsonBool(isSleepInProgress)},\n");
                 json.Append($"  \"autoPause\": {autoPauseJson},\n");
+                json.Append($"  \"singleFarmhandMenuPause\": {singleFarmhandMenuPauseJson},\n");
                 json.Append($"  \"onlinePlayers\": [{playersJson}],\n");
                 json.Append($"  \"lastAutomation\": {lastAutomationJson}\n");
                 json.Append("}\n");
@@ -1409,6 +1617,7 @@ namespace AutoHideHost
             {
                 this.Monitor.Log($"空服等待: {Math.Floor((DateTime.UtcNow - autoPauseEmptySince.Value).TotalSeconds)} 秒", LogLevel.Info);
             }
+            this.Monitor.Log($"单人背包暂停: {Config.PauseWhenSingleFarmhandOpensMenu} (状态={singleFarmhandMenuPauseState}, 原因={singleFarmhandMenuPauseReason}, 玩家={singleFarmhandMenuPausePlayerName}, 菜单={singleFarmhandMenuPauseMenuType})", LogLevel.Info);
             this.Monitor.Log($"面板手动暂停: {ReadManualPauseFlag()} ({Config.ManualPauseFile})", LogLevel.Info);
             this.Monitor.Log($"即时睡眠: {Config.InstantSleepWhenReady}", LogLevel.Info);
         }
@@ -1911,6 +2120,49 @@ namespace AutoHideHost
             LogDebug($"[守护窗口] 窗口结束时间: {guardWindowEnd:HH:mm:ss}");
         }
 
+        private void OnPeerDisconnected(object sender, PeerDisconnectedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled)
+                return;
+
+            long peerId = e?.Peer?.PlayerID ?? 0;
+            if (peerId != 0)
+                clientBackpackStates.Remove(peerId);
+
+            ResumeSingleFarmhandMenuPause($"peer_disconnected:{peerId}");
+        }
+
+        private void OnModMessageReceived(object sender, ModMessageReceivedEventArgs e)
+        {
+            if (!Context.IsMainPlayer || !Config.Enabled || !Context.IsWorldReady)
+                return;
+
+            if (e.FromModID != ClientPauseReporterModId || e.Type != BackpackStateMessageType)
+                return;
+
+            try
+            {
+                var message = e.ReadAs<ClientBackpackStateMessage>();
+                long playerId = e.FromPlayerID;
+                Farmer farmhand = GetOnlineFarmhands()
+                    .FirstOrDefault(f => f.UniqueMultiplayerID == playerId);
+
+                clientBackpackStates[playerId] = new ClientBackpackState
+                {
+                    BackpackOpen = message?.BackpackOpen == true,
+                    MenuType = message?.MenuType ?? "",
+                    PlayerName = farmhand?.Name ?? message?.PlayerName ?? "",
+                    UpdatedAt = DateTime.UtcNow,
+                };
+
+                CheckAndSingleFarmhandMenuPause();
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"[单人背包暂停] 读取客户端背包状态失败: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
         /// <summary>
         /// v1.1.8: 监控房主传送，检测并阻止意外传送到Farm/FarmHouse
         /// </summary>
@@ -1968,6 +2220,21 @@ namespace AutoHideHost
                 // 不在守护窗口内，但仍然检测到意外传送（记录警告）
                 this.Monitor.Log($"[传送监控] ⚠️ 检测到{e.NewLocation?.Name}传送（守护窗口外）: {e.OldLocation?.Name} → {e.NewLocation?.Name}", LogLevel.Warn);
             }
+        }
+
+        private class ClientBackpackStateMessage
+        {
+            public bool BackpackOpen { get; set; }
+            public string MenuType { get; set; } = "";
+            public string PlayerName { get; set; } = "";
+        }
+
+        private class ClientBackpackState
+        {
+            public bool BackpackOpen { get; set; }
+            public string MenuType { get; set; } = "";
+            public string PlayerName { get; set; } = "";
+            public DateTime UpdatedAt { get; set; } = DateTime.MinValue;
         }
 
         private void LogDebug(string message)
