@@ -5,7 +5,12 @@ namespace AutoHideHost
         public bool Enabled { get; set; } = true;
         public bool AutoHideOnLoad { get; set; } = true;
         public bool AutoHideDaily { get; set; } = true;
-        public bool PauseWhenEmpty { get; set; } = false;  // 默认改为false，避免服务器暂停导致客户端无法连接
+        public bool PauseWhenEmpty { get; set; } = true;
+        public string AutoPauseControlFile { get; set; } = "/home/steam/web-panel/data/auto-pause.json";
+        public int EmptyPauseDelaySeconds { get; set; } = 30;
+        public int AutoPauseStartupGraceSeconds { get; set; } = 45;
+        public bool AutoResumeOnPlayerJoin { get; set; } = true;
+        public int AutoPausePollTicks { get; set; } = 60;
         public bool InstantSleepWhenReady { get; set; } = true;
         public string HideMethod { get; set; } = "warp";
         public string WarpLocation { get; set; } = "Desert";

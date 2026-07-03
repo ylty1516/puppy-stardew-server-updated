@@ -201,6 +201,72 @@ function writeManualPauseState(enabled, reason = '') {
   };
 }
 
+function readAutoPauseState() {
+  const emptyState = {
+    enabled: true,
+    updatedAt: '',
+    updatedBy: '',
+    reason: '',
+    file: config.AUTO_PAUSE_FILE,
+    exists: false,
+    inheritedDefault: true,
+  };
+
+  try {
+    if (!config.AUTO_PAUSE_FILE || !fs.existsSync(config.AUTO_PAUSE_FILE)) {
+      return emptyState;
+    }
+
+    const data = JSON.parse(fs.readFileSync(config.AUTO_PAUSE_FILE, 'utf-8'));
+    return {
+      ...emptyState,
+      enabled: typeof data.enabled === 'boolean' ? data.enabled : true,
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : '',
+      updatedBy: typeof data.updatedBy === 'string' ? data.updatedBy : '',
+      reason: typeof data.reason === 'string' ? data.reason : '',
+      exists: true,
+      inheritedDefault: false,
+    };
+  } catch (error) {
+    return {
+      ...emptyState,
+      error: error.message,
+      exists: true,
+    };
+  }
+}
+
+function writeAutoPauseState(enabled, reason = '') {
+  if (!config.AUTO_PAUSE_FILE) {
+    throw new AppError('Auto pause state path is not configured', {
+      status: 500,
+      code: 'AUTO_PAUSE_NOT_CONFIGURED',
+      cause: 'AUTO_PAUSE_FILE is empty, so the panel cannot write the auto pause control file.',
+      action: 'Set AUTO_PAUSE_FILE or use the default container path.',
+    });
+  }
+
+  const state = {
+    enabled: enabled === true,
+    updatedAt: new Date().toISOString(),
+    updatedBy: 'web-panel',
+    reason: String(reason || '').slice(0, 240),
+  };
+
+  const dir = require('path').dirname(config.AUTO_PAUSE_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = `${config.AUTO_PAUSE_FILE}.tmp-${process.pid}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+  fs.renameSync(tmpPath, config.AUTO_PAUSE_FILE);
+
+  return {
+    ...state,
+    file: config.AUTO_PAUSE_FILE,
+    exists: true,
+    inheritedDefault: false,
+  };
+}
+
 function formatGameDay(gameState) {
   if (!gameState || !gameState.worldReady) return '';
   const season = gameState.season || '';
@@ -311,6 +377,7 @@ function collectStatus(req = null) {
   }
 
   const requestHost = (req && req.headers && (req.headers['x-forwarded-host'] || req.headers['host'])) || '';
+  const autoPauseControl = readAutoPauseState();
 
   const status = {
     timestamp: new Date().toISOString(),
@@ -327,6 +394,22 @@ function collectStatus(req = null) {
     scriptsHealthy: false,
     paused: false,
     manualPause: readManualPauseState(),
+    autoPause: {
+      enabled: autoPauseControl.enabled === true,
+      applied: false,
+      state: 'unknown',
+      reason: '',
+      onlinePlayers: 0,
+      emptySeconds: 0,
+      delaySeconds: 0,
+      startupGraceSeconds: 0,
+      autoResumeOnPlayerJoin: true,
+      emptySince: null,
+      configuredEnabled: null,
+      controlFile: config.AUTO_PAUSE_FILE,
+      controlError: autoPauseControl.error || '',
+      control: autoPauseControl,
+    },
     gameState: readGameStateBridge(),
     joinability: {
       joinable: false,
@@ -464,6 +547,25 @@ function collectStatus(req = null) {
     status.season = gameState.season || status.season;
     if (typeof gameState.paused === 'boolean') {
       status.paused = gameState.paused;
+    }
+    if (gameState.autoPause && typeof gameState.autoPause === 'object') {
+      status.autoPause = {
+        ...status.autoPause,
+        enabled: gameState.autoPause.enabled === true,
+        applied: gameState.autoPause.applied === true,
+        state: typeof gameState.autoPause.state === 'string' ? gameState.autoPause.state : status.autoPause.state,
+        reason: typeof gameState.autoPause.reason === 'string' ? gameState.autoPause.reason : '',
+        onlinePlayers: Number.isFinite(gameState.autoPause.onlinePlayers) ? gameState.autoPause.onlinePlayers : visiblePlayers.length,
+        emptySeconds: Number.isFinite(gameState.autoPause.emptySeconds) ? gameState.autoPause.emptySeconds : 0,
+        delaySeconds: Number.isFinite(gameState.autoPause.delaySeconds) ? gameState.autoPause.delaySeconds : 0,
+        startupGraceSeconds: Number.isFinite(gameState.autoPause.startupGraceSeconds) ? gameState.autoPause.startupGraceSeconds : 0,
+        autoResumeOnPlayerJoin: gameState.autoPause.autoResumeOnPlayerJoin !== false,
+        emptySince: gameState.autoPause.emptySince || null,
+        configuredEnabled: typeof gameState.autoPause.configuredEnabled === 'boolean' ? gameState.autoPause.configuredEnabled : status.autoPause.configuredEnabled,
+        controlFile: typeof gameState.autoPause.controlFile === 'string' ? gameState.autoPause.controlFile : status.autoPause.controlFile,
+        controlError: typeof gameState.autoPause.controlError === 'string' ? gameState.autoPause.controlError : status.autoPause.controlError,
+        control: autoPauseControl,
+      };
     }
   } else {
     status.players.online = 0;
@@ -674,6 +776,45 @@ function setManualPause(req, res) {
   }
 }
 
+function getAutoPause(req, res) {
+  res.json(readAutoPauseState());
+}
+
+function setAutoPause(req, res) {
+  try {
+    if (!req.body || typeof req.body.enabled !== 'boolean') {
+      return sendError(res, req, new AppError('Invalid auto pause request', {
+        status: 400,
+        code: 'INVALID_AUTO_PAUSE_REQUEST',
+        cause: 'The request must include a boolean "enabled" field.',
+        action: 'Refresh the panel and use the Auto Pause button again.',
+      }));
+    }
+
+    const state = writeAutoPauseState(req.body.enabled, req.body.reason || '');
+    cachedStatus = null;
+    res.json({
+      success: true,
+      autoPauseControl: state,
+      autoPause: {
+        enabled: state.enabled,
+        state: state.enabled ? 'waiting' : 'disabled',
+        control: state,
+      },
+      message: state.enabled ? 'Automatic empty-server pause enabled' : 'Automatic empty-server pause disabled',
+    });
+  } catch (e) {
+    return sendError(res, req, e, {
+      status: 500,
+      code: 'AUTO_PAUSE_UPDATE_FAILED',
+      message: 'Failed to update auto pause state',
+      cause: 'The panel could not write the auto pause control file.',
+      details: e.message,
+      action: 'Check web panel data permissions and container volume access.',
+    });
+  }
+}
+
 function scheduleContainerRecreate(managerUrl) {
   return new Promise((resolve, reject) => {
     let parsed;
@@ -736,4 +877,6 @@ module.exports = {
   restartContainer,
   getManualPause,
   setManualPause,
+  getAutoPause,
+  setAutoPause,
 };

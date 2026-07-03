@@ -1,8 +1,8 @@
 {
   "Name": "AutoHideHost",
   "Author": "AI Developer",
-  "Version": "1.2.5",
-  "Description": "Automatically hides the host player in multiplayer servers, writes a structured game-state bridge for the panel, lets farmhands proxy-trigger festivals, supports panel-controlled manual time pause, and provides seamless day-night transitions.",
+  "Version": "1.2.6",
+  "Description": "Automatically hides the host player in multiplayer servers, writes a structured game-state bridge for the panel, auto-pauses empty servers safely, lets farmhands proxy-trigger festivals, supports panel-controlled manual time pause, and provides seamless day-night transitions.",
   "UniqueID": "AIdev.AutoHideHost",
   "EntryDll": "AutoHideHost.dll",
   "MinimumApiVersion": "4.0.0",

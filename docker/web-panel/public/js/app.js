@@ -69,7 +69,7 @@ const translations = {
     'dash.gameDay': '游戏日期', 'dash.backups': '备份数量', 'dash.mods': '已加载Mod',
     'dash.resources': '系统资源', 'dash.quickActions': '快捷操作',
     'dash.details': '服务器详情', 'dash.joinIp': '联机 IP', 'dash.joinPort': '联机端口',
-    'dash.joinable': '可加入状态', 'dash.modRuntime': 'Mod 生效状态', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
+    'dash.joinable': '可加入状态', 'dash.modRuntime': 'Mod 生效状态', 'dash.autoPause': '自动暂停', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
     'dash.metricsPort': '监控端口', 'dash.events': '自动化事件',
     'dash.passout': '昏倒处理', 'dash.readyCheck': '准备检查', 'dash.offlineEvents': '离线恢复',
     'dash.joinHint': '游戏内通常只需要输入 IP 地址。', 'dash.portHint': '星露谷联机输入框里不要追加端口号。',
@@ -96,10 +96,23 @@ const translations = {
     'mod.reason.unknown': '无法确认 Mod 状态。',
     'mod.age': '更新于 {seconds} 秒前', 'mod.lastAutomation': '最近自动化 {type}（{result}）',
     'mod.success': '成功', 'mod.failed': '失败', 'mod.hostHidden': '房主已隐藏',
+    'autoPause.state.paused': '已自动暂停', 'autoPause.state.waiting': '等待空服',
+    'autoPause.state.online': '有人在线', 'autoPause.state.disabled': '已关闭',
+    'autoPause.state.manual_pause': '手动暂停中', 'autoPause.state.not_ready': '未就绪',
+    'autoPause.state.blocked': '暂不切换', 'autoPause.state.startup_grace': '启动保护',
+    'autoPause.note.disabled': '自动空服暂停未开启。',
+    'autoPause.note.paused': '服务器无人在线，游戏内时间已冻结。',
+    'autoPause.note.online': '检测到玩家在线，会保持游戏时间正常流动。',
+    'autoPause.note.waiting': '服务器无人在线，正在等待 {seconds}/{delay} 秒后暂停。',
+    'autoPause.note.manual': '管理员手动暂停优先，自动暂停不会覆盖它。',
+    'autoPause.note.blocked': '当前状态不适合切换暂停：{reason}',
     'dash.viewLogs': '查看日志', 'dash.restart': '重启服务器', 'dash.backup': '立即备份',
     'dash.pauseTime': '暂停时间', 'dash.resumeTime': '恢复时间',
+    'dash.enableAutoPause': '开启自动暂停', 'dash.disableAutoPause': '关闭自动暂停',
     'dash.pauseHint': '手动暂停会冻结游戏内时间，所有在线玩家都会停在当前时间，直到你恢复。',
     'dash.pauseActive': '手动暂停已开启，游戏内时间会保持冻结。',
+    'dash.autoPauseActive': '自动空服暂停已开启，无人在线超过延迟后会冻结游戏时间。',
+    'dash.autoPauseInactive': '自动空服暂停已关闭，无人在线时游戏时间也会继续流动。',
     'term.title': 'SMAPI 控制台（非系统终端）', 'term.hint': '点击“连接”后会附着到正在运行的 SMAPI 进程。这里只能输入 SMAPI 命令或 Steam Guard 验证码，不能执行 Linux 命令。',
     'term.connect': '连接', 'term.disconnect': '断开', 'term.send': '发送', 'term.input': '输入 SMAPI 命令或 Steam Guard 验证码...',
     'players.title': '在线玩家', 'players.loading': '加载中...',
@@ -171,6 +184,9 @@ const translations = {
     'toast.pauseOn': '已开启手动暂停，游戏内时间即将冻结。',
     'toast.pauseOff': '已关闭手动暂停，游戏内时间将继续流动。',
     'toast.pauseFail': '切换手动暂停失败',
+    'toast.autoPauseOn': '已开启自动空服暂停。',
+    'toast.autoPauseOff': '已关闭自动空服暂停，若此前由自动暂停冻结会自动恢复。',
+    'toast.autoPauseFail': '切换自动暂停失败',
     'toast.pwdOk': '密码修改成功', 'toast.pwdFail': '密码修改失败',
     'toast.configOk': '配置已保存，重启 Docker 容器后生效', 'toast.configFail': '配置保存失败',
     'toast.creatingBackup': '正在创建备份...', 'toast.passwordFields': '请填写两个密码字段',
@@ -188,7 +204,7 @@ const translations = {
     'dash.gameDay': 'Game Day', 'dash.backups': 'Backups', 'dash.mods': 'Loaded Mods',
     'dash.resources': 'System Resources', 'dash.quickActions': 'Quick Actions',
     'dash.details': 'Server Details', 'dash.joinIp': 'Join IP', 'dash.joinPort': 'Join Port',
-    'dash.joinable': 'Joinable', 'dash.modRuntime': 'Mod Runtime', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
+    'dash.joinable': 'Joinable', 'dash.modRuntime': 'Mod Runtime', 'dash.autoPause': 'Auto Pause', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
     'dash.metricsPort': 'Metrics Port', 'dash.events': 'Automation Events',
     'dash.passout': 'Passout', 'dash.readyCheck': 'Ready Check', 'dash.offlineEvents': 'Offline Recovery',
     'dash.joinHint': 'In-game usually only needs the IP address.', 'dash.portHint': 'Do not append the port in Stardew\'s join field.',
@@ -215,10 +231,23 @@ const translations = {
     'mod.reason.unknown': 'The mod runtime state cannot be confirmed.',
     'mod.age': 'updated {seconds}s ago', 'mod.lastAutomation': 'last automation {type} ({result})',
     'mod.success': 'success', 'mod.failed': 'failed', 'mod.hostHidden': 'host hidden',
+    'autoPause.state.paused': 'Auto paused', 'autoPause.state.waiting': 'Waiting empty',
+    'autoPause.state.online': 'Players online', 'autoPause.state.disabled': 'Disabled',
+    'autoPause.state.manual_pause': 'Manual pause', 'autoPause.state.not_ready': 'Not ready',
+    'autoPause.state.blocked': 'Blocked', 'autoPause.state.startup_grace': 'Startup grace',
+    'autoPause.note.disabled': 'Automatic empty-server pause is disabled.',
+    'autoPause.note.paused': 'No players are online, so in-game time is frozen.',
+    'autoPause.note.online': 'Players are online, so in-game time keeps moving.',
+    'autoPause.note.waiting': 'No players online. Pausing after {seconds}/{delay}s.',
+    'autoPause.note.manual': 'Manual pause has priority and will not be overridden.',
+    'autoPause.note.blocked': 'Pause switching is blocked by the current state: {reason}',
     'dash.viewLogs': 'View Logs', 'dash.restart': 'Restart Server', 'dash.backup': 'Backup Now',
     'dash.pauseTime': 'Pause Time', 'dash.resumeTime': 'Resume Time',
+    'dash.enableAutoPause': 'Enable Auto Pause', 'dash.disableAutoPause': 'Disable Auto Pause',
     'dash.pauseHint': 'Manual pause freezes in-game time for all connected players until you resume it.',
     'dash.pauseActive': 'Manual pause is enabled. In-game time will stay frozen.',
+    'dash.autoPauseActive': 'Automatic empty-server pause is enabled. Time freezes after the empty delay.',
+    'dash.autoPauseInactive': 'Automatic empty-server pause is disabled. Time keeps moving when empty.',
     'term.title': 'SMAPI Console (Not a System Shell)', 'term.hint': 'Click "Connect" to attach to the running SMAPI process. This accepts SMAPI commands and Steam Guard codes, not Linux shell commands.',
     'term.connect': 'Connect', 'term.disconnect': 'Disconnect', 'term.send': 'Send', 'term.input': 'Type a SMAPI command or Steam Guard code...',
     'players.title': 'Online Players', 'players.loading': 'Loading...',
@@ -290,6 +319,9 @@ const translations = {
     'toast.pauseOn': 'Manual pause enabled. In-game time will freeze shortly.',
     'toast.pauseOff': 'Manual pause disabled. In-game time will resume.',
     'toast.pauseFail': 'Failed to toggle manual pause',
+    'toast.autoPauseOn': 'Automatic empty-server pause enabled.',
+    'toast.autoPauseOff': 'Automatic empty-server pause disabled. An auto-held pause will be released.',
+    'toast.autoPauseFail': 'Failed to toggle auto pause',
     'toast.pwdOk': 'Password changed', 'toast.pwdFail': 'Password change failed',
     'toast.configOk': 'Config saved. Restart the Docker container to apply.', 'toast.configFail': 'Failed to save config',
     'toast.creatingBackup': 'Creating backup...', 'toast.passwordFields': 'Please fill in both password fields',
@@ -671,6 +703,7 @@ function updateDashboardUI(data) {
   setText('detail-join-port', `${network.joinPort || 24642}/UDP`);
   updateJoinabilityUI(data.joinability || { joinable: false, reason: 'unknown' });
   updateModRuntimeUI(data.modRuntime || { active: false, state: 'unknown' });
+  updateAutoPauseUI(data.autoPause || { enabled: false, state: 'unknown' });
   setText('detail-local-ips', network.localIps && network.localIps.length ? network.localIps.join(', ') : '--');
   setText('detail-version', data.version || '--');
   setText('detail-script-health', data.scriptsHealthy ? t('dash.healthy') : t('dash.unhealthy'));
@@ -725,6 +758,73 @@ function updateModRuntimeUI(modRuntime) {
     }
     note.textContent = parts.filter(Boolean).join(' | ');
   }
+}
+
+function updateAutoPauseUI(autoPause) {
+  const value = document.getElementById('detail-auto-pause');
+  const note = document.getElementById('detail-auto-pause-note');
+  const button = document.getElementById('autoPauseBtn');
+  const label = document.getElementById('autoPauseBtnText');
+  const state = autoPause?.state || (autoPause?.enabled ? 'waiting' : 'disabled');
+  const enabled = autoPause?.enabled === true;
+  const applied = autoPause?.applied === true;
+
+  if (value) {
+    const stateKey = `autoPause.state.${state}`;
+    const stateLabel = t(stateKey);
+    value.textContent = stateLabel === stateKey ? state : stateLabel;
+    setTone(value, applied ? 'warn' : enabled ? 'ok' : 'warn');
+  }
+
+  if (button) {
+    button.disabled = false;
+    button.classList.toggle('auto-pause-active', enabled);
+    button.classList.toggle('btn-success', enabled);
+    button.classList.toggle('btn-warning', !enabled);
+  }
+
+  if (label) {
+    label.textContent = enabled ? t('dash.disableAutoPause') : t('dash.enableAutoPause');
+  }
+
+  if (!note) return;
+
+  if (!enabled || state === 'disabled') {
+    note.textContent = t('dash.autoPauseInactive');
+    return;
+  }
+
+  if (state === 'unknown' || state === 'startup_grace' || state === 'not_ready') {
+    note.textContent = t('dash.autoPauseActive');
+    return;
+  }
+
+  if (state === 'paused') {
+    note.textContent = t('autoPause.note.paused');
+    return;
+  }
+
+  if (state === 'online') {
+    note.textContent = t('autoPause.note.online');
+    return;
+  }
+
+  if (state === 'manual_pause') {
+    note.textContent = t('autoPause.note.manual');
+    return;
+  }
+
+  if (state === 'waiting') {
+    note.textContent = tf('autoPause.note.waiting', {
+      seconds: Math.floor(autoPause?.emptySeconds || 0),
+      delay: autoPause?.delaySeconds || 0,
+    });
+    return;
+  }
+
+  note.textContent = tf('autoPause.note.blocked', {
+    reason: autoPause?.controlError || autoPause?.reason || state,
+  });
 }
 
 function updateManualPauseUI(manualPause) {
@@ -1616,6 +1716,38 @@ async function toggleManualPause() {
   } else {
     showToast(formatApiError(data, t('toast.pauseFail')), 'error', 7000);
     updateManualPauseUI(lastStatusData?.manualPause || { enabled: current });
+  }
+}
+
+async function toggleAutoPause() {
+  const current = lastStatusData?.autoPause?.enabled === true;
+  const button = document.getElementById('autoPauseBtn');
+  if (button) {
+    button.disabled = true;
+  }
+
+  const data = await API.post('/api/game/auto-pause', {
+    enabled: !current,
+    reason: 'dashboard-toggle',
+  });
+
+  if (data && data.success) {
+    const autoPause = {
+      ...(lastStatusData?.autoPause || {}),
+      ...(data.autoPause || {}),
+      enabled: data.autoPause?.enabled === true,
+      control: data.autoPauseControl || data.autoPause?.control || null,
+    };
+    if (!lastStatusData) {
+      lastStatusData = {};
+    }
+    lastStatusData.autoPause = autoPause;
+    updateAutoPauseUI(autoPause);
+    showToast(autoPause.enabled ? t('toast.autoPauseOn') : t('toast.autoPauseOff'), 'success');
+    loadDashboard();
+  } else {
+    showToast(formatApiError(data, t('toast.autoPauseFail')), 'error', 7000);
+    updateAutoPauseUI(lastStatusData?.autoPause || { enabled: current });
   }
 }
 

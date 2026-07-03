@@ -39,6 +39,13 @@ namespace AutoHideHost
         private int skipCooldownSeconds = 5;  // 跳过冷却时间（秒）
         private bool manualPauseApplied = false;
         private bool manualPauseLastRequested = false;
+        private bool autoPauseApplied = false;
+        private DateTime? autoPauseEmptySince = null;
+        private DateTime? autoPauseWorldReadySince = null;
+        private string autoPauseState = "not_ready";
+        private string autoPauseReason = "world_not_ready";
+        private int autoPauseLastOnlinePlayers = 0;
+        private string autoPauseControlError = "";
         private string lastAutomationType = "";
         private bool lastAutomationSuccess = false;
         private string lastAutomationMessage = "";
@@ -76,6 +83,12 @@ namespace AutoHideHost
             needToCheckAlwaysOnServer = true;
             alwaysOnServerCheckTicks = 0;
             alwaysOnServerChecked = false;
+            bool autoPauseEnabled = IsAutoPauseEnabled();
+            autoPauseWorldReadySince = DateTime.UtcNow;
+            autoPauseEmptySince = null;
+            autoPauseApplied = false;
+            autoPauseState = autoPauseEnabled ? "startup_grace" : "disabled";
+            autoPauseReason = autoPauseEnabled ? "waiting_for_multiplayer_ready" : "disabled";
             this.Monitor.Log("存档已加载，3秒后检查 Always On Server 状态", LogLevel.Info);
 
             if (Config.AutoHideOnLoad)
@@ -452,7 +465,7 @@ namespace AutoHideHost
                 CheckAndAutoSleep();
             }
 
-            if (e.Ticks % 60 == 0)
+            if (e.Ticks % Math.Max(15, Config.AutoPausePollTicks) == 0)
             {
                 CheckAndAutoPause();
             }
@@ -486,31 +499,253 @@ namespace AutoHideHost
 
         private void CheckAndAutoPause()
         {
-            // v1.0.3: 完全禁用自动暂停功能，因为它会导致服务器重启后客户端无法连接
-            // 暂停功能与ServerAutoLoad的自动加载存档功能冲突
-            return;
-
-            /*
-            if (!Context.IsMainPlayer || !Config.PauseWhenEmpty || !Context.IsWorldReady)
+            if (!Context.IsMainPlayer || !Config.Enabled)
+            {
+                ResetAutoPauseState("not_ready", "main_player_not_ready");
                 return;
+            }
 
-            // 修复：只统计真正在线的玩家
-            int onlineFarmhands = Game1.getOnlineFarmers()
-                .Count(f => f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID);
-            bool shouldPause = (onlineFarmhands == 0);
+            if (!Context.IsWorldReady)
+            {
+                autoPauseWorldReadySince = null;
+                ResetAutoPauseState("not_ready", "world_not_ready");
+                return;
+            }
 
-            if (shouldPause && !Game1.paused)
+            if (!autoPauseWorldReadySince.HasValue)
+                autoPauseWorldReadySince = DateTime.UtcNow;
+
+            bool autoPauseEnabled = IsAutoPauseEnabled();
+            int onlineFarmhands = CountOnlineFarmhands();
+            autoPauseLastOnlinePlayers = onlineFarmhands;
+
+            if (onlineFarmhands > 0)
+            {
+                autoPauseEmptySince = null;
+                ResumeAutoPause($"player_online:{onlineFarmhands}");
+                autoPauseState = "online";
+                autoPauseReason = $"players_online:{onlineFarmhands}";
+                return;
+            }
+
+            if (!autoPauseEnabled)
+            {
+                autoPauseEmptySince = null;
+                ResumeAutoPause("auto_pause_disabled", force: true);
+                autoPauseState = "disabled";
+                autoPauseReason = "disabled";
+                return;
+            }
+
+            bool manualRequested = ReadManualPauseFlag();
+            if (manualRequested)
+            {
+                autoPauseState = "manual_pause";
+                autoPauseReason = "manual_pause_has_priority";
+                return;
+            }
+
+            if (!IsAutoPauseSafe(out string unsafeReason))
+            {
+                autoPauseState = "blocked";
+                autoPauseReason = unsafeReason;
+                return;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            if (!autoPauseEmptySince.HasValue)
+            {
+                autoPauseEmptySince = now;
+                autoPauseState = "waiting";
+                autoPauseReason = "empty_delay_started";
+                LogDebug($"[自动暂停] 服务器无人在线，开始等待 {Config.EmptyPauseDelaySeconds} 秒后暂停");
+                return;
+            }
+
+            double emptySeconds = (now - autoPauseEmptySince.Value).TotalSeconds;
+            int delaySeconds = Math.Max(0, Config.EmptyPauseDelaySeconds);
+            if (emptySeconds < delaySeconds)
+            {
+                autoPauseState = "waiting";
+                autoPauseReason = $"empty_for_{Math.Floor(emptySeconds)}_of_{delaySeconds}_seconds";
+                return;
+            }
+
+            autoPauseState = "paused";
+            autoPauseReason = "empty_server";
+            if (!Game1.paused)
             {
                 Game1.paused = true;
-                this.Monitor.Log("服务器无玩家在线，已自动暂停", LogLevel.Info);
+                SetLastAutomation("autoPause", true, $"paused_after_empty:{Math.Floor(emptySeconds)}s");
+                this.Monitor.Log($"[自动暂停] 已连续 {Math.Floor(emptySeconds)} 秒无玩家在线，游戏时间已冻结", LogLevel.Info);
             }
-            else if (!shouldPause && Game1.paused)
+            else if (!autoPauseApplied)
+            {
+                SetLastAutomation("autoPause", true, "claimed_existing_pause");
+                this.Monitor.Log("[自动暂停] 无玩家在线，游戏已经处于暂停状态，接管为自动暂停", LogLevel.Info);
+            }
+
+            autoPauseApplied = true;
+        }
+
+        private int CountOnlineFarmhands()
+        {
+            if (!Context.IsWorldReady || Game1.player == null)
+                return 0;
+
+            return Game1.getOnlineFarmers()
+                .Count(f => f != null && f.UniqueMultiplayerID != Game1.player.UniqueMultiplayerID);
+        }
+
+        private bool IsAutoPauseEnabled()
+        {
+            if (TryReadAutoPauseControlFlag(out bool controlledEnabled))
+                return controlledEnabled;
+
+            return Config.PauseWhenEmpty;
+        }
+
+        private bool TryReadAutoPauseControlFlag(out bool enabled)
+        {
+            enabled = Config.PauseWhenEmpty;
+            autoPauseControlError = "";
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(Config.AutoPauseControlFile) || !File.Exists(Config.AutoPauseControlFile))
+                    return false;
+
+                string raw = File.ReadAllText(Config.AutoPauseControlFile).Trim();
+                if (raw.Equals("true", StringComparison.OrdinalIgnoreCase))
+                {
+                    enabled = true;
+                    return true;
+                }
+
+                if (raw.Equals("false", StringComparison.OrdinalIgnoreCase))
+                {
+                    enabled = false;
+                    return true;
+                }
+
+                if (Regex.IsMatch(raw, "\"enabled\"\\s*:\\s*true", RegexOptions.IgnoreCase))
+                {
+                    enabled = true;
+                    return true;
+                }
+
+                if (Regex.IsMatch(raw, "\"enabled\"\\s*:\\s*false", RegexOptions.IgnoreCase))
+                {
+                    enabled = false;
+                    return true;
+                }
+
+                autoPauseControlError = "missing_enabled_boolean";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                autoPauseControlError = ex.Message;
+                return false;
+            }
+        }
+
+        private void WriteAutoPauseControlFlag(bool enabled, string reason)
+        {
+            if (string.IsNullOrWhiteSpace(Config.AutoPauseControlFile))
+                return;
+
+            string dir = Path.GetDirectoryName(Config.AutoPauseControlFile);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            string json = "{\n" +
+                $"  \"enabled\": {(enabled ? "true" : "false")},\n" +
+                $"  \"updatedAt\": \"{DateTime.UtcNow:O}\",\n" +
+                "  \"updatedBy\": \"smapi-console\",\n" +
+                $"  \"reason\": \"{JsonEscape(reason)}\"\n" +
+                "}\n";
+            File.WriteAllText(Config.AutoPauseControlFile, json);
+        }
+
+        private bool IsAutoPauseSafe(out string reason)
+        {
+            reason = "";
+
+            if (!Game1.IsServer || Game1.server == null)
+            {
+                reason = "multiplayer_not_ready";
+                return false;
+            }
+
+            int startupGraceSeconds = Math.Max(0, Config.AutoPauseStartupGraceSeconds);
+            if (autoPauseWorldReadySince.HasValue
+                && (DateTime.UtcNow - autoPauseWorldReadySince.Value).TotalSeconds < startupGraceSeconds)
+            {
+                reason = "startup_grace";
+                return false;
+            }
+
+            if (Game1.game1 != null && Game1.game1.IsSaving)
+            {
+                reason = "saving";
+                return false;
+            }
+
+            if (isSleepInProgress || needToSleep || Game1.saveOnNewDay)
+            {
+                reason = "sleep_or_day_transition";
+                return false;
+            }
+
+            if (Game1.CurrentEvent != null)
+            {
+                reason = Game1.CurrentEvent.skippable ? "event_cleanup" : "blocking_event";
+                return false;
+            }
+
+            if (Game1.activeClickableMenu != null)
+            {
+                reason = $"menu_open:{Game1.activeClickableMenu.GetType().Name}";
+                return false;
+            }
+
+            reason = "safe";
+            return true;
+        }
+
+        private void ResetAutoPauseState(string state, string reason)
+        {
+            if (autoPauseApplied && Context.IsWorldReady)
+            {
+                ResumeAutoPause(reason, force: true);
+            }
+            else
+            {
+                autoPauseApplied = false;
+                autoPauseEmptySince = null;
+            }
+
+            autoPauseState = state;
+            autoPauseReason = reason;
+            autoPauseLastOnlinePlayers = 0;
+        }
+
+        private void ResumeAutoPause(string reason, bool force = false)
+        {
+            if (!autoPauseApplied)
+                return;
+
+            autoPauseApplied = false;
+            autoPauseEmptySince = null;
+
+            if ((force || Config.AutoResumeOnPlayerJoin) && Game1.paused && !ReadManualPauseFlag())
             {
                 Game1.paused = false;
                 hasTriggeredSleep = false;
-                this.Monitor.Log($"检测到 {onlineFarmhands} 名玩家在线，已自动恢复", LogLevel.Info);
+                SetLastAutomation("autoPause", true, $"resumed:{reason}");
+                this.Monitor.Log($"[自动暂停] {reason}，游戏时间已自动恢复", LogLevel.Info);
             }
-            */
         }
 
         private bool ReadManualPauseFlag()
@@ -562,7 +797,6 @@ namespace AutoHideHost
                 if (!Game1.paused)
                 {
                     Game1.paused = true;
-                    manualPauseApplied = true;
                     SetLastAutomation("manualPause", true, "enabled");
                     this.Monitor.Log("面板手动暂停已开启：游戏内时间已冻结", LogLevel.Info);
                 }
@@ -570,14 +804,20 @@ namespace AutoHideHost
                 {
                     this.Monitor.Log("面板手动暂停已开启：游戏已经处于暂停状态", LogLevel.Info);
                 }
+                manualPauseApplied = true;
             }
             else
             {
-                if (manualPauseApplied && Game1.paused)
+                if (manualPauseApplied && Game1.paused && !autoPauseApplied)
                 {
                     Game1.paused = false;
                     SetLastAutomation("manualPause", true, "disabled");
                     this.Monitor.Log("面板手动暂停已关闭：游戏内时间继续流动", LogLevel.Info);
+                }
+                else if (manualPauseApplied && autoPauseApplied)
+                {
+                    SetLastAutomation("manualPause", true, "disabled_auto_pause_still_active");
+                    this.Monitor.Log("面板手动暂停已关闭，但自动暂停仍在保持空服冻结", LogLevel.Info);
                 }
                 manualPauseApplied = false;
             }
@@ -695,6 +935,25 @@ namespace AutoHideHost
                         $"\"at\":{JsonString(lastAutomationAt.Value.ToString("O"))}" +
                         "}"
                     : "null";
+                double autoPauseEmptySeconds = autoPauseEmptySince.HasValue
+                    ? Math.Max(0, (DateTime.UtcNow - autoPauseEmptySince.Value).TotalSeconds)
+                    : 0;
+                bool autoPauseEnabled = IsAutoPauseEnabled();
+                string autoPauseJson = "{" +
+                    $"\"enabled\":{JsonBool(autoPauseEnabled)}," +
+                    $"\"configuredEnabled\":{JsonBool(Config.PauseWhenEmpty)}," +
+                    $"\"applied\":{JsonBool(autoPauseApplied)}," +
+                    $"\"state\":{JsonString(autoPauseState)}," +
+                    $"\"reason\":{JsonString(autoPauseReason)}," +
+                    $"\"onlinePlayers\":{autoPauseLastOnlinePlayers}," +
+                    $"\"emptySeconds\":{Math.Floor(autoPauseEmptySeconds)}," +
+                    $"\"delaySeconds\":{Math.Max(0, Config.EmptyPauseDelaySeconds)}," +
+                    $"\"startupGraceSeconds\":{Math.Max(0, Config.AutoPauseStartupGraceSeconds)}," +
+                    $"\"autoResumeOnPlayerJoin\":{JsonBool(Config.AutoResumeOnPlayerJoin)}," +
+                    $"\"controlFile\":{JsonString(Config.AutoPauseControlFile ?? "")}," +
+                    $"\"controlError\":{JsonString(autoPauseControlError)}," +
+                    $"\"emptySince\":{(autoPauseEmptySince.HasValue ? JsonString(autoPauseEmptySince.Value.ToString("O")) : "null")}" +
+                    "}";
 
                 var json = new StringBuilder();
                 json.Append("{\n");
@@ -718,6 +977,7 @@ namespace AutoHideHost
                 json.Append($"  \"festival\": {festivalJson},\n");
                 json.Append($"  \"hostHidden\": {JsonBool(isHostHidden)},\n");
                 json.Append($"  \"sleepInProgress\": {JsonBool(isSleepInProgress)},\n");
+                json.Append($"  \"autoPause\": {autoPauseJson},\n");
                 json.Append($"  \"onlinePlayers\": [{playersJson}],\n");
                 json.Append($"  \"lastAutomation\": {lastAutomationJson}\n");
                 json.Append("}\n");
@@ -1072,6 +1332,7 @@ namespace AutoHideHost
             this.Helper.ConsoleCommands.Add("autohide_status", "显示模组状态", OnCommand_Status);
             this.Helper.ConsoleCommands.Add("autohide_reload", "重新加载配置", OnCommand_Reload);
             this.Helper.ConsoleCommands.Add("autohide_pause_time", "手动暂停/恢复游戏时间: autohide_pause_time on|off|toggle|status", OnCommand_PauseTime);
+            this.Helper.ConsoleCommands.Add("autohide_auto_pause", "自动空服暂停: autohide_auto_pause on|off|status", OnCommand_AutoPause);
         }
 
         private void OnCommand_HideHost(string command, string[] args)
@@ -1125,9 +1386,56 @@ namespace AutoHideHost
                 this.Monitor.Log($"游戏暂停: {Game1.paused}", LogLevel.Info);
             }
             this.Monitor.Log($"隐藏方式: {Config.HideMethod}", LogLevel.Info);
-            this.Monitor.Log($"自动暂停: {Config.PauseWhenEmpty}", LogLevel.Info);
+            this.Monitor.Log($"自动暂停: {IsAutoPauseEnabled()} (配置默认={Config.PauseWhenEmpty}, 状态={autoPauseState}, 原因={autoPauseReason}, 延迟={Config.EmptyPauseDelaySeconds}s, 启动保护={Config.AutoPauseStartupGraceSeconds}s, 自动恢复={Config.AutoResumeOnPlayerJoin})", LogLevel.Info);
+            if (autoPauseEmptySince.HasValue)
+            {
+                this.Monitor.Log($"空服等待: {Math.Floor((DateTime.UtcNow - autoPauseEmptySince.Value).TotalSeconds)} 秒", LogLevel.Info);
+            }
             this.Monitor.Log($"面板手动暂停: {ReadManualPauseFlag()} ({Config.ManualPauseFile})", LogLevel.Info);
             this.Monitor.Log($"即时睡眠: {Config.InstantSleepWhenReady}", LogLevel.Info);
+        }
+
+        private void OnCommand_AutoPause(string command, string[] args)
+        {
+            if (!Context.IsMainPlayer)
+            {
+                this.Monitor.Log("只有房主可以执行此命令", LogLevel.Error);
+                return;
+            }
+
+            string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "status";
+            if (mode == "status")
+            {
+                this.Monitor.Log($"自动暂停: {IsAutoPauseEnabled()} (配置默认={Config.PauseWhenEmpty}); 已接管暂停: {autoPauseApplied}; 状态: {autoPauseState}; 原因: {autoPauseReason}", LogLevel.Info);
+                this.Monitor.Log($"在线玩家: {CountOnlineFarmhands()}; 延迟: {Config.EmptyPauseDelaySeconds}s; 启动保护: {Config.AutoPauseStartupGraceSeconds}s; 玩家加入恢复: {Config.AutoResumeOnPlayerJoin}", LogLevel.Info);
+                if (!string.IsNullOrWhiteSpace(autoPauseControlError))
+                    this.Monitor.Log($"自动暂停控制文件读取异常: {autoPauseControlError}", LogLevel.Warn);
+                return;
+            }
+
+            if (mode == "on" || mode == "true" || mode == "enable")
+            {
+                Config.PauseWhenEmpty = true;
+                this.Helper.WriteConfig(Config);
+                WriteAutoPauseControlFlag(true, "console_enabled");
+                CheckAndAutoPause();
+                this.Monitor.Log("自动空服暂停已开启", LogLevel.Info);
+                return;
+            }
+
+            if (mode == "off" || mode == "false" || mode == "disable")
+            {
+                Config.PauseWhenEmpty = false;
+                this.Helper.WriteConfig(Config);
+                WriteAutoPauseControlFlag(false, "console_disabled");
+                ResumeAutoPause("console_disabled", force: true);
+                autoPauseState = "disabled";
+                autoPauseReason = "disabled_by_console";
+                this.Monitor.Log("自动空服暂停已关闭", LogLevel.Info);
+                return;
+            }
+
+            this.Monitor.Log("用法: autohide_auto_pause on|off|status", LogLevel.Info);
         }
 
         private void OnCommand_PauseTime(string command, string[] args)
@@ -1569,12 +1877,19 @@ namespace AutoHideHost
         /// </summary>
         private void OnPeerConnected(object sender, PeerConnectedEventArgs e)
         {
-            if (!Context.IsMainPlayer || !Config.Enabled || !Config.PreventHostFarmWarp)
+            if (!Context.IsMainPlayer || !Config.Enabled)
+                return;
+
+            long peerId = e?.Peer?.PlayerID ?? 0;
+            autoPauseEmptySince = null;
+            ResumeAutoPause($"peer_connected:{peerId}");
+
+            if (!Config.PreventHostFarmWarp)
                 return;
 
             // 启动/刷新守护窗口
             guardWindowEnd = DateTime.Now.AddSeconds(Config.PeerConnectGuardSeconds);
-            this.Monitor.Log($"[守护窗口] 玩家 {e.Peer.PlayerID} 连接，启动{Config.PeerConnectGuardSeconds}秒守护窗口", LogLevel.Info);
+            this.Monitor.Log($"[守护窗口] 玩家 {peerId} 连接，启动{Config.PeerConnectGuardSeconds}秒守护窗口", LogLevel.Info);
             LogDebug($"[守护窗口] 窗口结束时间: {guardWindowEnd:HH:mm:ss}");
         }
 

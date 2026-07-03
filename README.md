@@ -11,6 +11,7 @@
 - SMAPI 状态桥输出 `game-state.json`，面板可区分“游戏运行”和“联机可加入”
 - 星露谷风格主题界面，支持亮色/暗色模式
 - 日志页支持错误筛选、诊断卡片和准确错误原因提示
+- 真正可用的自动空服暂停：无人在线后延迟冻结游戏时间，玩家连入时自动恢复
 - 手动暂停/恢复游戏内时间，适合临时等人、查在线人数或处理联机状态
 - 任意在线玩家进入节日地点时，可由服务器房主自动代理触发节日
 - 存档上传、默认存档选择、备份下载和手动备份
@@ -24,6 +25,45 @@
 如果你在面板里上传了内容类或客户端也需要安装的 SMAPI Mod，玩家本地没有对应 Mod 时，可能会出现无法进入、内容缺失、报错或多人状态不一致的问题。面板的“模组”页面现在提供“下载玩家 Mod 包”按钮，会把玩家可能需要安装的自定义/内容类 Mod 打成 `stardew-client-mods.zip`。
 
 内置的服务器控制 Mod（例如 AutoHideHost、ServerAutoLoad、Always On Server、Skill Level Guard）会被自动排除，不需要玩家单独安装。
+
+## 自动空服暂停
+
+内置 AutoHideHost 会读取真实在线玩家数，不统计隐藏房主。默认策略是：
+
+- 存档和多人联机层就绪后，先等待 45 秒启动保护
+- 服务器无人在线持续 30 秒后，自动设置 `Game1.paused = true`
+- 任意玩家开始连入时立即恢复游戏时间
+- 管理员手动暂停优先，自动暂停不会覆盖手动暂停
+- 保存、过夜、事件、菜单等不适合切换暂停的状态下，会暂缓操作
+
+仪表盘提供“开启自动暂停 / 关闭自动暂停”按钮，会实时写入运行时控制文件，无需重启容器：
+
+```text
+/home/steam/web-panel/data/auto-pause.json
+```
+
+可在 `Mods/AutoHideHost/config.json` 中调整：
+
+```json
+{
+  "PauseWhenEmpty": true,
+  "AutoPauseControlFile": "/home/steam/web-panel/data/auto-pause.json",
+  "EmptyPauseDelaySeconds": 30,
+  "AutoPauseStartupGraceSeconds": 45,
+  "AutoResumeOnPlayerJoin": true,
+  "AutoPausePollTicks": 60
+}
+```
+
+SMAPI 控制台命令：
+
+```text
+autohide_auto_pause status
+autohide_auto_pause on
+autohide_auto_pause off
+```
+
+仪表盘的“自动暂停”状态会显示当前是等待空服、已自动暂停、有人在线，还是被保存/事件/菜单等状态阻止。
 
 ## 手动暂停游戏时间
 
@@ -146,7 +186,7 @@ http://你的服务器IP:18642
 
 ### 仪表盘
 
-显示游戏进程状态、在线玩家数、运行时间、游戏日期、联机地址、备份数量、已加载模组和自动化事件。这里也提供“查看日志”“重启服务器”“立即备份”“暂停时间”等快捷操作。
+显示游戏进程状态、在线玩家数、运行时间、游戏日期、联机地址、备份数量、已加载模组和自动化事件。这里也提供“查看日志”“重启服务器”“立即备份”“暂停时间”“自动暂停”等快捷操作。
 
 ### 日志诊断
 

@@ -84,6 +84,7 @@ services:
       - LOG_MONITOR_INTERVAL=${LOG_MONITOR_INTERVAL:-5}
       - LOG_MONITOR_BATCH_SIZE=${LOG_MONITOR_BATCH_SIZE:-500}
       - MANUAL_PAUSE_FILE=${MANUAL_PAUSE_FILE:-/home/steam/web-panel/data/manual-pause.json}
+      - AUTO_PAUSE_FILE=${AUTO_PAUSE_FILE:-/home/steam/web-panel/data/auto-pause.json}
       - GAME_STATE_FILE=${GAME_STATE_FILE:-/home/steam/web-panel/data/game-state.json}
 
       # GPU rendering - OPTIONAL (default: false)
