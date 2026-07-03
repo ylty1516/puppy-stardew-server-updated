@@ -270,6 +270,21 @@ body::after {
   color: #392514;
 }
 
+.detail-value.ok,
+:root[data-theme='light'] .detail-value.ok {
+  color: var(--accent);
+}
+
+.detail-value.warn,
+:root[data-theme='light'] .detail-value.warn {
+  color: var(--accent-warn);
+}
+
+.detail-value.error,
+:root[data-theme='light'] .detail-value.error {
+  color: var(--accent-error);
+}
+
 .btn,
 .login-btn,
 .log-filter,

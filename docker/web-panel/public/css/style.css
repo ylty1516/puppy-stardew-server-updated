@@ -324,6 +324,10 @@ body {
   word-break: break-word;
 }
 
+.detail-value.ok { color: var(--accent); }
+.detail-value.warn { color: var(--accent-warn); }
+.detail-value.error { color: var(--accent-error); }
+
 .detail-note {
   margin-top: 6px;
   font-size: 12px;

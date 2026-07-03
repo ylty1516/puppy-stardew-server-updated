@@ -20,5 +20,9 @@ namespace AutoHideHost
         public bool DebugTraceMenus { get; set; } = false;  // 启用菜单堆栈追踪
         public string ManualPauseFile { get; set; } = "/home/steam/web-panel/data/manual-pause.json";
         public int ManualPausePollTicks { get; set; } = 60;
+        public string GameStateFile { get; set; } = "/home/steam/web-panel/data/game-state.json";
+        public int GameStateWriteTicks { get; set; } = 60;
+        public bool EnableFestivalProxyTrigger { get; set; } = true;
+        public int FestivalProxyCooldownSeconds { get; set; } = 20;
     }
 }

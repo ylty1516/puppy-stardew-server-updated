@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
@@ -38,6 +39,14 @@ namespace AutoHideHost
         private int skipCooldownSeconds = 5;  // 跳过冷却时间（秒）
         private bool manualPauseApplied = false;
         private bool manualPauseLastRequested = false;
+        private string lastAutomationType = "";
+        private bool lastAutomationSuccess = false;
+        private string lastAutomationMessage = "";
+        private DateTime? lastAutomationAt = null;
+        private string lastFestivalProxyKey = "";
+        private string lastFestivalProxyBy = "";
+        private string lastFestivalProxyFestivalId = "";
+        private DateTime? lastFestivalProxyAt = null;
 
         public override void Entry(IModHelper helper)
         {
@@ -275,6 +284,11 @@ namespace AutoHideHost
                 ApplyManualPauseFlag();
             }
 
+            if (e.Ticks % Math.Max(30, Config.GameStateWriteTicks) == 0)
+            {
+                WriteGameStateBridge();
+            }
+
             // v1.1.8: 处理延迟重新隐藏
             if (needRehide && rehideTicks > 0)
             {
@@ -329,6 +343,7 @@ namespace AutoHideHost
                                 {
                                     setReadyMethod.Invoke(readyCheckName, true);
                                     this.Monitor.Log($"✓ 房主已设置为准备状态（SetLocalReady）", LogLevel.Info);
+                                    SetLastAutomation("readyCheck", true, $"SetLocalReady:{readyCheckName}");
                                     handledReadyCheck = true;
                                 }
                                 else
@@ -378,6 +393,7 @@ namespace AutoHideHost
                     // 可以跳过这个事件
                     this.Monitor.Log($"跳过可跳过的事件: {currentEventId}", LogLevel.Info);
                     Game1.CurrentEvent.skipEvent();
+                    SetLastAutomation("skipEvent", true, currentEventId);
 
                     // 记录已处理的事件
                     lastSkippedEventId = currentEventId;
@@ -547,6 +563,7 @@ namespace AutoHideHost
                 {
                     Game1.paused = true;
                     manualPauseApplied = true;
+                    SetLastAutomation("manualPause", true, "enabled");
                     this.Monitor.Log("面板手动暂停已开启：游戏内时间已冻结", LogLevel.Info);
                 }
                 else if (!manualPauseLastRequested)
@@ -559,12 +576,160 @@ namespace AutoHideHost
                 if (manualPauseApplied && Game1.paused)
                 {
                     Game1.paused = false;
+                    SetLastAutomation("manualPause", true, "disabled");
                     this.Monitor.Log("面板手动暂停已关闭：游戏内时间继续流动", LogLevel.Info);
                 }
                 manualPauseApplied = false;
             }
 
             manualPauseLastRequested = requested;
+        }
+
+        private void SetLastAutomation(string type, bool success, string message)
+        {
+            lastAutomationType = type ?? "";
+            lastAutomationSuccess = success;
+            lastAutomationMessage = message ?? "";
+            lastAutomationAt = DateTime.UtcNow;
+        }
+
+        private string JsonEscape(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return "";
+
+            return value
+                .Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n");
+        }
+
+        private string JsonString(string value)
+        {
+            return $"\"{JsonEscape(value)}\"";
+        }
+
+        private string JsonBool(bool value)
+        {
+            return value ? "true" : "false";
+        }
+
+        private void WriteGameStateBridge()
+        {
+            if (string.IsNullOrWhiteSpace(Config.GameStateFile))
+                return;
+
+            try
+            {
+                string dir = Path.GetDirectoryName(Config.GameStateFile);
+                if (!string.IsNullOrWhiteSpace(dir))
+                    Directory.CreateDirectory(dir);
+
+                bool worldReady = Context.IsWorldReady;
+                bool isServer = worldReady && Game1.IsServer;
+                bool multiplayerReady = worldReady && isServer && Game1.server != null;
+                bool saving = worldReady && Game1.game1 != null && Game1.game1.IsSaving;
+                bool blockedByMenu = worldReady && Game1.activeClickableMenu != null;
+                bool blockedByEvent = worldReady && Game1.CurrentEvent != null && !Game1.CurrentEvent.skippable;
+                bool joinable = worldReady && isServer && multiplayerReady && !saving && !blockedByEvent && !blockedByMenu;
+                string joinableReason = "ready";
+
+                if (!worldReady)
+                    joinableReason = "world_not_ready";
+                else if (!isServer)
+                    joinableReason = "not_main_server";
+                else if (!multiplayerReady)
+                    joinableReason = "multiplayer_not_initialized";
+                else if (saving)
+                    joinableReason = "saving";
+                else if (blockedByEvent)
+                    joinableReason = "blocking_event";
+                else if (blockedByMenu)
+                    joinableReason = "menu_open";
+
+                var players = worldReady
+                    ? Game1.getOnlineFarmers().ToList()
+                    : new System.Collections.Generic.List<Farmer>();
+
+                string playersJson = string.Join(",", players.Select(f =>
+                {
+                    string location = f.currentLocation?.Name ?? "";
+                    bool isHost = worldReady && f.UniqueMultiplayerID == Game1.player.UniqueMultiplayerID;
+                    return "{" +
+                        $"\"name\":{JsonString(f.Name)}," +
+                        $"\"id\":{JsonString(f.UniqueMultiplayerID.ToString())}," +
+                        $"\"isHost\":{JsonBool(isHost)}," +
+                        $"\"location\":{JsonString(location)}," +
+                        $"\"inBed\":{JsonBool(f.isInBed.Value)}" +
+                        "}";
+                }));
+
+                string activeMenu = worldReady ? (Game1.activeClickableMenu?.GetType().Name ?? "") : "";
+                string currentEventId = worldReady && Game1.CurrentEvent != null ? (Game1.CurrentEvent.id ?? "") : "";
+                bool currentEventSkippable = worldReady && Game1.CurrentEvent != null && Game1.CurrentEvent.skippable;
+                string festivalId = "";
+                string festivalLocation = "";
+                int festivalStartTime = 0;
+                int festivalEndTime = 0;
+                bool hasFestival = worldReady && TryGetTodaysFestivalInfo(out festivalId, out festivalLocation, out festivalStartTime, out festivalEndTime);
+                bool festivalOpen = hasFestival && Game1.timeOfDay >= festivalStartTime && Game1.timeOfDay <= festivalEndTime;
+                string festivalJson = hasFestival
+                    ? "{" +
+                        $"\"id\":{JsonString(festivalId)}," +
+                        $"\"location\":{JsonString(festivalLocation)}," +
+                        $"\"startTime\":{festivalStartTime}," +
+                        $"\"endTime\":{festivalEndTime}," +
+                        $"\"open\":{JsonBool(festivalOpen)}," +
+                        $"\"proxyEnabled\":{JsonBool(Config.EnableFestivalProxyTrigger)}," +
+                        $"\"lastProxyFestivalId\":{JsonString(lastFestivalProxyFestivalId)}," +
+                        $"\"lastProxyBy\":{JsonString(lastFestivalProxyBy)}," +
+                        $"\"lastProxyAt\":{(lastFestivalProxyAt.HasValue ? JsonString(lastFestivalProxyAt.Value.ToString("O")) : "null")}" +
+                        "}"
+                    : "null";
+                string lastAutomationJson = lastAutomationAt.HasValue
+                    ? "{" +
+                        $"\"type\":{JsonString(lastAutomationType)}," +
+                        $"\"success\":{JsonBool(lastAutomationSuccess)}," +
+                        $"\"message\":{JsonString(lastAutomationMessage)}," +
+                        $"\"at\":{JsonString(lastAutomationAt.Value.ToString("O"))}" +
+                        "}"
+                    : "null";
+
+                var json = new StringBuilder();
+                json.Append("{\n");
+                json.Append($"  \"updatedAt\": {JsonString(DateTime.UtcNow.ToString("O"))},\n");
+                json.Append($"  \"worldReady\": {JsonBool(worldReady)},\n");
+                json.Append($"  \"isMainPlayer\": {JsonBool(Context.IsMainPlayer)},\n");
+                json.Append($"  \"isServer\": {JsonBool(isServer)},\n");
+                json.Append($"  \"isMultiplayer\": {JsonBool(worldReady && Game1.IsMultiplayer)},\n");
+                json.Append($"  \"multiplayerReady\": {JsonBool(multiplayerReady)},\n");
+                json.Append($"  \"joinable\": {JsonBool(joinable)},\n");
+                json.Append($"  \"joinableReason\": {JsonString(joinableReason)},\n");
+                json.Append($"  \"saveName\": {JsonString(worldReady ? (Game1.player?.farmName.Value ?? "") : "")},\n");
+                json.Append($"  \"season\": {JsonString(worldReady ? Game1.currentSeason : "")},\n");
+                json.Append($"  \"day\": {(worldReady ? Game1.dayOfMonth : 0)},\n");
+                json.Append($"  \"year\": {(worldReady ? Game1.year : 0)},\n");
+                json.Append($"  \"timeOfDay\": {(worldReady ? Game1.timeOfDay : 0)},\n");
+                json.Append($"  \"paused\": {JsonBool(worldReady && Game1.paused)},\n");
+                json.Append($"  \"saving\": {JsonBool(saving)},\n");
+                json.Append($"  \"activeMenu\": {JsonString(activeMenu)},\n");
+                json.Append($"  \"currentEvent\": {(string.IsNullOrWhiteSpace(currentEventId) ? "null" : "{" + $"\"id\":{JsonString(currentEventId)},\"skippable\":{JsonBool(currentEventSkippable)}" + "}")},\n");
+                json.Append($"  \"festival\": {festivalJson},\n");
+                json.Append($"  \"hostHidden\": {JsonBool(isHostHidden)},\n");
+                json.Append($"  \"sleepInProgress\": {JsonBool(isSleepInProgress)},\n");
+                json.Append($"  \"onlinePlayers\": [{playersJson}],\n");
+                json.Append($"  \"lastAutomation\": {lastAutomationJson}\n");
+                json.Append("}\n");
+
+                string tmpPath = $"{Config.GameStateFile}.tmp-{Environment.ProcessId}";
+                File.WriteAllText(tmpPath, json.ToString());
+                File.Move(tmpPath, Config.GameStateFile, true);
+            }
+            catch (Exception ex)
+            {
+                this.Monitor.Log($"写入游戏状态桥失败: {ex.Message}", LogLevel.Debug);
+            }
         }
 
         /// <summary>
@@ -668,11 +833,13 @@ namespace AutoHideHost
 
                 this.Monitor.Log($"✓ startSleep()已调用", LogLevel.Info);
                 this.Monitor.Log($"✓ 设置睡眠唤醒位置: FarmHouse ({bedX}, {bedY})", LogLevel.Info);
+                SetLastAutomation("autoSleep", true, "startSleep invoked");
 
                 Game1.displayHUD = true;
             }
             catch (Exception ex)
             {
+                SetLastAutomation("autoSleep", false, ex.Message);
                 this.Monitor.Log($"GoToBed出错: {ex.Message}", LogLevel.Error);
                 this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Error);
             }
@@ -877,9 +1044,11 @@ namespace AutoHideHost
                 this.Helper.Events.GameLoop.UpdateTicked += HandleAfterWarp;
 
                 this.Monitor.Log("✓ 传送已触发，等待下一个tick执行点击床逻辑...", LogLevel.Info);
+                SetLastAutomation("autoSleep", true, "warp to bed scheduled");
             }
             catch (Exception ex)
             {
+                SetLastAutomation("autoSleep", false, ex.Message);
                 this.Monitor.Log($"ExecuteSleep出错: {ex.Message}", LogLevel.Error);
                 this.Monitor.Log($"堆栈: {ex.StackTrace}", LogLevel.Error);
             }
@@ -1221,6 +1390,180 @@ namespace AutoHideHost
             this.Monitor.Log("", LogLevel.Info);
         }
 
+        private bool TryGetTodaysFestivalInfo(out string festivalId, out string locationName, out int startTime, out int endTime)
+        {
+            festivalId = "";
+            locationName = "";
+            startTime = 0;
+            endTime = 0;
+
+            if (!Context.IsWorldReady || !Utility.isFestivalDay())
+                return false;
+
+            festivalId = $"{Game1.currentSeason}{Game1.dayOfMonth}";
+
+            try
+            {
+                var method = typeof(StardewValley.Event)
+                    .GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == "tryToLoadFestivalData" && m.GetParameters().Length == 6);
+
+                if (method == null)
+                    return false;
+
+                object[] args = { festivalId, null, null, null, 0, 0 };
+                bool loaded = method.Invoke(null, args) is bool result && result;
+                if (!loaded)
+                    return false;
+
+                locationName = args[3] as string ?? "";
+                startTime = args[4] is int start ? start : 0;
+                endTime = args[5] is int end ? end : 0;
+
+                return !string.IsNullOrWhiteSpace(locationName);
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"[FestivalProxy] Failed to read festival info: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool TryLoadFestivalEvent(string festivalId, out StardewValley.Event festivalEvent)
+        {
+            festivalEvent = null;
+
+            try
+            {
+                var method = typeof(StardewValley.Event)
+                    .GetMethods(System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
+                    .FirstOrDefault(m => m.Name == "tryToLoadFestival" && m.GetParameters().Length == 2);
+
+                if (method == null)
+                    return false;
+
+                object[] args = { festivalId, null };
+                bool loaded = method.Invoke(null, args) is bool result && result;
+                festivalEvent = args[1] as StardewValley.Event;
+                return loaded && festivalEvent != null;
+            }
+            catch (Exception ex)
+            {
+                LogDebug($"[FestivalProxy] Failed to load festival event {festivalId}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool IsFestivalLocationMatch(GameLocation location, string festivalLocation, string festivalId)
+        {
+            string locationName = location?.Name ?? "";
+            if (string.IsNullOrWhiteSpace(locationName) || string.IsNullOrWhiteSpace(festivalLocation))
+                return false;
+
+            if (locationName.Equals(festivalLocation, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (locationName.StartsWith($"{festivalLocation}-", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return location != null
+                && location.IsTemporary
+                && (locationName.IndexOf(festivalId, StringComparison.OrdinalIgnoreCase) >= 0
+                    || locationName.IndexOf(festivalLocation, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private void TryTriggerFestivalProxy(WarpedEventArgs e)
+        {
+            if (!Config.EnableFestivalProxyTrigger || !Context.IsWorldReady || e == null || e.Player == null || e.IsLocalPlayer)
+                return;
+
+            if (Game1.player == null || e.Player.UniqueMultiplayerID == Game1.player.UniqueMultiplayerID)
+                return;
+
+            if (Game1.CurrentEvent != null || isSleepInProgress || hasTriggeredSleep || needToSleep)
+                return;
+
+            if (!TryGetTodaysFestivalInfo(out string festivalId, out string festivalLocation, out int startTime, out int endTime))
+                return;
+
+            if (Game1.timeOfDay < startTime || Game1.timeOfDay > endTime)
+                return;
+
+            if (!IsFestivalLocationMatch(e.NewLocation, festivalLocation, festivalId))
+                return;
+
+            string proxyKey = $"{festivalId}:{Game1.year}:{Game1.dayOfMonth}:{festivalLocation}";
+            int cooldownSeconds = Math.Max(5, Config.FestivalProxyCooldownSeconds);
+            if (lastFestivalProxyAt.HasValue
+                && lastFestivalProxyKey == proxyKey
+                && (DateTime.UtcNow - lastFestivalProxyAt.Value).TotalSeconds < cooldownSeconds)
+            {
+                LogDebug($"[FestivalProxy] Cooldown active for {proxyKey}");
+                return;
+            }
+
+            Point tile = e.Player.TilePoint;
+            int x = tile.X;
+            int y = tile.Y;
+            if (x <= 0 && y <= 0)
+            {
+                Utility.getDefaultWarpLocation(festivalLocation, ref x, ref y);
+            }
+
+            x = Math.Max(0, x);
+            y = Math.Max(0, y);
+
+            lastFestivalProxyKey = proxyKey;
+            lastFestivalProxyBy = e.Player.Name ?? e.Player.UniqueMultiplayerID.ToString();
+            lastFestivalProxyFestivalId = festivalId;
+            lastFestivalProxyAt = DateTime.UtcNow;
+
+            this.Monitor.Log($"[FestivalProxy] Player {lastFestivalProxyBy} entered {e.NewLocation?.Name}; host will trigger festival {festivalId} at {festivalLocation} ({x}, {y}).", LogLevel.Info);
+            SetLastAutomation("festivalProxy", true, $"scheduled:{festivalId}:{lastFestivalProxyBy}");
+
+            if (Game1.activeClickableMenu != null)
+                Game1.activeClickableMenu = null;
+
+            Game1.warpFarmer(festivalLocation, x, y, false);
+
+            void StartFestivalAfterWarp(object s, EventArgs ev)
+            {
+                this.Helper.Events.GameLoop.UpdateTicked -= StartFestivalAfterWarp;
+
+                try
+                {
+                    if (Game1.activeClickableMenu != null)
+                        Game1.activeClickableMenu = null;
+
+                    if (!TryLoadFestivalEvent(festivalId, out StardewValley.Event festivalEvent))
+                    {
+                        SetLastAutomation("festivalProxy", false, $"load failed:{festivalId}");
+                        this.Monitor.Log($"[FestivalProxy] Failed to load festival event {festivalId}.", LogLevel.Warn);
+                        return;
+                    }
+
+                    var startEventMethod = this.Helper.Reflection.GetMethod(Game1.currentLocation, "startEvent", required: false);
+                    if (startEventMethod == null)
+                    {
+                        SetLastAutomation("festivalProxy", false, "startEvent method missing");
+                        this.Monitor.Log("[FestivalProxy] Could not find GameLocation.startEvent.", LogLevel.Warn);
+                        return;
+                    }
+
+                    startEventMethod.Invoke(festivalEvent);
+                    SetLastAutomation("festivalProxy", true, $"started:{festivalId}:{lastFestivalProxyBy}");
+                    this.Monitor.Log($"[FestivalProxy] Festival {festivalId} started by proxy for player {lastFestivalProxyBy}.", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    SetLastAutomation("festivalProxy", false, ex.Message);
+                    this.Monitor.Log($"[FestivalProxy] Failed to start festival {festivalId}: {ex.Message}", LogLevel.Error);
+                }
+            }
+
+            this.Helper.Events.GameLoop.UpdateTicked += StartFestivalAfterWarp;
+        }
+
         /// <summary>
         /// v1.1.8: 玩家连接时启动守护窗口
         /// </summary>
@@ -1240,7 +1583,12 @@ namespace AutoHideHost
         /// </summary>
         private void OnWarped(object sender, WarpedEventArgs e)
         {
-            if (!Context.IsMainPlayer || !Config.Enabled || !Config.PreventHostFarmWarp)
+            if (!Context.IsMainPlayer || !Config.Enabled)
+                return;
+
+            TryTriggerFestivalProxy(e);
+
+            if (!Config.PreventHostFarmWarp || e == null || !e.IsLocalPlayer)
                 return;
 
             // 记录所有传送（调试用）

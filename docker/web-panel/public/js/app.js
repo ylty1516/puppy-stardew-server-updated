@@ -63,12 +63,24 @@ const translations = {
     'dash.gameDay': '游戏日期', 'dash.backups': '备份数量', 'dash.mods': '已加载Mod',
     'dash.resources': '系统资源', 'dash.quickActions': '快捷操作',
     'dash.details': '服务器详情', 'dash.joinIp': '联机 IP', 'dash.joinPort': '联机端口',
-    'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
+    'dash.joinable': '可加入状态', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
     'dash.metricsPort': '监控端口', 'dash.events': '自动化事件',
     'dash.passout': '昏倒处理', 'dash.readyCheck': '准备检查', 'dash.offlineEvents': '离线恢复',
     'dash.joinHint': '游戏内通常只需要输入 IP 地址。', 'dash.portHint': '星露谷联机输入框里不要追加端口号。',
     'dash.healthy': '正常', 'dash.unhealthy': '异常',
     'dash.paused': '暂停游戏',
+    'join.ready': '可加入', 'join.blocked': '不可加入',
+    'join.reason.ready': '联机层已初始化，玩家现在应该可以加入。',
+    'join.reason.game_process_stopped': '游戏进程未运行，请启动或重启容器。',
+    'join.reason.state_bridge_missing': '正在等待 SMAPI 状态桥写入状态。',
+    'join.reason.state_bridge_stale': 'SMAPI 状态桥已过期，游戏可能冻结或 Mod 未继续写入。',
+    'join.reason.world_not_ready': '存档尚未加载完成。',
+    'join.reason.not_main_server': '当前客户端不是主机服务器。',
+    'join.reason.multiplayer_not_initialized': '多人联机层未初始化，需要通过 VNC 走 Co-op 重新载入存档。',
+    'join.reason.saving': '游戏正在保存，完成后再加入。',
+    'join.reason.blocking_event': '房主处于阻塞事件中，可能需要推进或跳过事件。',
+    'join.reason.menu_open': '房主有菜单打开，自动化会尝试处理；若持续存在请用 VNC 查看。',
+    'join.reason.unknown': '可加入状态未知，请查看 SMAPI 日志。',
     'dash.viewLogs': '查看日志', 'dash.restart': '重启服务器', 'dash.backup': '立即备份',
     'dash.pauseTime': '暂停时间', 'dash.resumeTime': '恢复时间',
     'dash.pauseHint': '手动暂停会冻结游戏内时间，所有在线玩家都会停在当前时间，直到你恢复。',
@@ -154,12 +166,24 @@ const translations = {
     'dash.gameDay': 'Game Day', 'dash.backups': 'Backups', 'dash.mods': 'Loaded Mods',
     'dash.resources': 'System Resources', 'dash.quickActions': 'Quick Actions',
     'dash.details': 'Server Details', 'dash.joinIp': 'Join IP', 'dash.joinPort': 'Join Port',
-    'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
+    'dash.joinable': 'Joinable', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
     'dash.metricsPort': 'Metrics Port', 'dash.events': 'Automation Events',
     'dash.passout': 'Passout', 'dash.readyCheck': 'Ready Check', 'dash.offlineEvents': 'Offline Recovery',
     'dash.joinHint': 'In-game usually only needs the IP address.', 'dash.portHint': 'Do not append the port in Stardew\'s join field.',
     'dash.healthy': 'Healthy', 'dash.unhealthy': 'Unhealthy',
     'dash.paused': 'Paused',
+    'join.ready': 'Ready', 'join.blocked': 'Not joinable',
+    'join.reason.ready': 'The multiplayer layer is initialized. Players should be able to join now.',
+    'join.reason.game_process_stopped': 'The game process is not running. Start or restart the container.',
+    'join.reason.state_bridge_missing': 'Waiting for the SMAPI state bridge to write game state.',
+    'join.reason.state_bridge_stale': 'The SMAPI state bridge is stale. The game may be frozen or the mod stopped writing state.',
+    'join.reason.world_not_ready': 'The save has not finished loading.',
+    'join.reason.not_main_server': 'This client is not acting as the main server.',
+    'join.reason.multiplayer_not_initialized': 'The multiplayer layer is not initialized. Reload the save through Co-op via VNC.',
+    'join.reason.saving': 'The game is saving. Wait for saving to finish.',
+    'join.reason.blocking_event': 'The host is blocked by an event. Advance or skip it if players cannot move.',
+    'join.reason.menu_open': 'The host has an open menu. Automation may handle it; use VNC if it persists.',
+    'join.reason.unknown': 'Joinable state is unknown. Check SMAPI logs.',
     'dash.viewLogs': 'View Logs', 'dash.restart': 'Restart Server', 'dash.backup': 'Backup Now',
     'dash.pauseTime': 'Pause Time', 'dash.resumeTime': 'Resume Time',
     'dash.pauseHint': 'Manual pause freezes in-game time for all connected players until you resume it.',
@@ -582,6 +606,7 @@ function updateDashboardUI(data) {
   const network = data.network || {};
   setText('detail-join-ip', network.joinIp || '--');
   setText('detail-join-port', `${network.joinPort || 24642}/UDP`);
+  updateJoinabilityUI(data.joinability || { joinable: false, reason: 'unknown' });
   setText('detail-local-ips', network.localIps && network.localIps.length ? network.localIps.join(', ') : '--');
   setText('detail-version', data.version || '--');
   setText('detail-script-health', data.scriptsHealthy ? t('dash.healthy') : t('dash.unhealthy'));
@@ -590,6 +615,24 @@ function updateDashboardUI(data) {
   setText('detail-event-readycheck', String(data.events?.readycheck || 0));
   setText('detail-event-offline', String(data.events?.offline || 0));
   updateManualPauseUI(data.manualPause || { enabled: false });
+}
+
+function updateJoinabilityUI(joinability) {
+  const value = document.getElementById('detail-joinable');
+  const note = document.getElementById('detail-joinable-note');
+  const joinable = joinability && joinability.joinable === true;
+  const reason = joinability?.reason || 'unknown';
+  const reasonText = translations[currentLang][`join.reason.${reason}`] || joinability?.label || reason;
+
+  if (value) {
+    value.textContent = joinable ? t('join.ready') : t('join.blocked');
+    value.classList.toggle('ok', joinable);
+    value.classList.toggle('warn', !joinable);
+  }
+
+  if (note) {
+    note.textContent = reasonText;
+  }
 }
 
 function updateManualPauseUI(manualPause) {

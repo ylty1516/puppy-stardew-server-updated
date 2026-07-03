@@ -14,5 +14,9 @@
   "RehideDelayTicks": 1,
   "DebugTraceMenus": false,
   "ManualPauseFile": "/home/steam/web-panel/data/manual-pause.json",
-  "ManualPausePollTicks": 60
+  "ManualPausePollTicks": 60,
+  "GameStateFile": "/home/steam/web-panel/data/game-state.json",
+  "GameStateWriteTicks": 60,
+  "EnableFestivalProxyTrigger": true,
+  "FestivalProxyCooldownSeconds": 20
 }

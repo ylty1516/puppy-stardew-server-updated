@@ -200,6 +200,100 @@ function writeManualPauseState(enabled, reason = '') {
   };
 }
 
+function readGameStateBridge() {
+  const emptyState = {
+    available: false,
+    stale: true,
+    ageSeconds: null,
+    file: config.GAME_STATE_FILE,
+  };
+
+  try {
+    if (!config.GAME_STATE_FILE || !fs.existsSync(config.GAME_STATE_FILE)) {
+      return emptyState;
+    }
+
+    const data = JSON.parse(fs.readFileSync(config.GAME_STATE_FILE, 'utf-8'));
+    const updatedAtMs = Date.parse(data.updatedAt || '');
+    const ageSeconds = Number.isFinite(updatedAtMs)
+      ? Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000))
+      : null;
+    const stale = ageSeconds === null || ageSeconds > 15;
+
+    return {
+      ...data,
+      available: true,
+      stale,
+      ageSeconds,
+      file: config.GAME_STATE_FILE,
+    };
+  } catch (error) {
+    return {
+      ...emptyState,
+      error: error.message,
+    };
+  }
+}
+
+function formatGameDay(gameState) {
+  if (!gameState || !gameState.worldReady) return '';
+  const season = gameState.season || '';
+  const day = gameState.day || 0;
+  const year = gameState.year || 0;
+  const time = gameState.timeOfDay || 0;
+  const label = [season, day ? `Day ${day}` : '', year ? `Y${year}` : ''].filter(Boolean).join(' ');
+  return time ? `${label} ${time}`.trim() : label;
+}
+
+function describeJoinable(gameState, gameRunning) {
+  if (!gameRunning) {
+    return {
+      joinable: false,
+      reason: 'game_process_stopped',
+      label: 'Game process is not running',
+      action: 'Start or restart the container.',
+    };
+  }
+
+  if (!gameState || !gameState.available) {
+    return {
+      joinable: false,
+      reason: 'state_bridge_missing',
+      label: 'Waiting for SMAPI state bridge',
+      action: 'Wait for the save to load, or check whether AutoHideHost is loaded.',
+    };
+  }
+
+  if (gameState.stale) {
+    return {
+      joinable: false,
+      reason: 'state_bridge_stale',
+      label: 'SMAPI state is stale',
+      action: 'Check whether the game is frozen or AutoHideHost stopped writing game-state.json.',
+    };
+  }
+
+  const reason = gameState.joinableReason || (gameState.joinable ? 'ready' : 'unknown');
+  const messages = {
+    ready: ['Ready to join', 'Players should be able to join now.'],
+    world_not_ready: ['Save is not loaded', 'Wait for ServerAutoLoad or load the save through VNC.'],
+    not_main_server: ['Host is not the main server', 'Reload through Co-op so the host opens the multiplayer session.'],
+    multiplayer_not_initialized: ['Multiplayer layer is not initialized', 'Use VNC to reload the save through Co-op, then retry.'],
+    saving: ['Game is saving', 'Wait for saving to finish before joining or backing up.'],
+    blocking_event: ['Blocked by an event', 'Advance or skip the host event if players cannot move.'],
+    menu_open: ['Host menu is open', 'Automation may close it; use VNC if it stays open.'],
+    unknown: ['Not joinable yet', 'Check SMAPI logs and host state.'],
+  };
+  const [label, action] = messages[reason] || messages.unknown;
+
+  return {
+    joinable: gameState.joinable === true,
+    reason,
+    label,
+    action,
+  };
+}
+
 function collectStatus(req = null) {
   const now = Date.now();
   if (cachedStatus && now - cacheTime < CACHE_TTL) {
@@ -223,6 +317,21 @@ function collectStatus(req = null) {
     scriptsHealthy: false,
     paused: false,
     manualPause: readManualPauseState(),
+    gameState: readGameStateBridge(),
+    joinability: {
+      joinable: false,
+      reason: 'unknown',
+      label: 'Unknown',
+      action: '',
+    },
+    health: {
+      containerRunning: true,
+      gameProcessRunning: false,
+      smapiStateFresh: false,
+      saveLoaded: false,
+      multiplayerReady: false,
+      joinable: false,
+    },
     events: {
       passout: 0,
       readycheck: 0,
@@ -284,6 +393,7 @@ function collectStatus(req = null) {
   try {
     const pidStr = execSync('pgrep -f StardewModdingAPI', { encoding: 'utf-8' }).trim().split('\n')[0];
     status.gameRunning = true;
+    status.health.gameProcessRunning = true;
 
     // If we didn't get data from status.json, collect live
     if (status.cpu === 0 && status.memory.used === 0 && pidStr) {
@@ -322,6 +432,34 @@ function collectStatus(req = null) {
   if (status.manualPause.enabled) {
     status.paused = true;
   }
+
+  status.health.gameProcessRunning = status.gameRunning === true;
+
+  if (status.gameState.available && !status.gameState.stale) {
+    const gameState = status.gameState;
+    status.gameRunning = status.gameRunning || gameState.worldReady === true;
+    status.health.smapiStateFresh = true;
+    status.health.saveLoaded = gameState.worldReady === true;
+    status.health.multiplayerReady = gameState.multiplayerReady === true;
+    status.health.joinable = gameState.joinable === true;
+    status.players.online = Array.isArray(gameState.onlinePlayers)
+      ? gameState.onlinePlayers.filter(player => player && player.isHost !== true).length
+      : status.players.online;
+    status.players.list = Array.isArray(gameState.onlinePlayers) ? gameState.onlinePlayers : [];
+    status.day = formatGameDay(gameState) || status.day;
+    status.season = gameState.season || status.season;
+    if (typeof gameState.paused === 'boolean') {
+      status.paused = gameState.paused;
+    }
+  }
+
+  if (status.manualPause.enabled) {
+    status.paused = true;
+  }
+
+  status.health.gameProcessRunning = status.gameRunning === true;
+  status.joinability = describeJoinable(status.gameState, status.gameRunning);
+  status.health.joinable = status.joinability.joinable;
 
   if (!status.scriptsHealthy) {
     try {

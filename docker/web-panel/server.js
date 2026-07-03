@@ -23,6 +23,7 @@ const GAME_DIR = process.env.GAME_DIR || '/home/steam/stardewvalley';
 const SMAPI_LOG = process.env.SMAPI_LOG || '/home/steam/.config/StardewValley/ErrorLogs/SMAPI-latest.txt';
 const ENV_FILE = process.env.ENV_FILE || '/home/steam/web-panel/data/runtime.env';
 const MANUAL_PAUSE_FILE = process.env.MANUAL_PAUSE_FILE || '/home/steam/web-panel/data/manual-pause.json';
+const GAME_STATE_FILE = process.env.GAME_STATE_FILE || '/home/steam/web-panel/data/game-state.json';
 
 // Export paths for use by API modules
 const config = {
@@ -36,6 +37,7 @@ const config = {
   SMAPI_LOG,
   ENV_FILE,
   MANUAL_PAUSE_FILE,
+  GAME_STATE_FILE,
 };
 module.exports = config;
 
