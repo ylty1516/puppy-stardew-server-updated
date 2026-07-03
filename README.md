@@ -107,6 +107,18 @@ autohide_pause_time status
 
 状态桥 `game-state.json` 会输出当天节日 ID、地点、开放时间和最近一次代理触发记录，方便在面板或日志里排查。
 
+## 晕倒处理安全策略
+
+旧版脚本会在日志出现 `passed out`、`exhausted` 或 `collapsed` 时直接对游戏窗口发送按键。新版默认关闭这类按键自动处理，避免把玩家野外晕倒或体力耗尽误判成凌晨 2 点过夜流程。
+
+如果确实需要键盘兜底，可以在 `.env` 中显式开启：
+
+```env
+ENABLE_PASSOUT_KEY_AUTOMATION=true
+```
+
+开启后脚本也会先读取 `game-state.json`，只有确认处于凌晨 2 点、保存或过夜流程时才会发送少量确认键。
+
 ## 可加入状态
 
 AutoHideHost 会定期写入：

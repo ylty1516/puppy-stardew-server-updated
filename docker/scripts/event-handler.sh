@@ -12,6 +12,8 @@
 #   - Save loaded          : F9 to enable AlwaysOnServer auto mode
 
 SMAPI_LOG="/home/steam/.config/StardewValley/ErrorLogs/SMAPI-latest.txt"
+GAME_STATE_FILE=${GAME_STATE_FILE:-/home/steam/web-panel/data/game-state.json}
+ENABLE_PASSOUT_KEY_AUTOMATION=${ENABLE_PASSOUT_KEY_AUTOMATION:-false}
 LOCK_FILE="/tmp/stardew-key-lock"
 LOCK_TIMEOUT=10
 
@@ -72,6 +74,66 @@ check_cooldown() {
     return 0  # Cooldown expired
 }
 
+should_handle_passout_keys() {
+    if [ "$ENABLE_PASSOUT_KEY_AUTOMATION" != "true" ]; then
+        log_passout "检测到晕倒日志，但按键自动处理默认关闭（避免误处理玩家野外晕倒）"
+        return 1
+    fi
+
+    if [ ! -f "$GAME_STATE_FILE" ]; then
+        log_passout "跳过按键处理：状态桥不存在 ($GAME_STATE_FILE)"
+        return 1
+    fi
+
+    if ! command -v node >/dev/null 2>&1; then
+        log_passout "跳过按键处理：node 不可用，无法校验状态桥"
+        return 1
+    fi
+
+    local reason rc
+    reason=$(node - "$GAME_STATE_FILE" <<'NODE' 2>/dev/null
+const fs = require('fs');
+const file = process.argv[2];
+function fail(message) {
+  console.log(message);
+  process.exit(1);
+}
+
+let data;
+try {
+  data = JSON.parse(fs.readFileSync(file, 'utf8'));
+} catch (error) {
+  fail(`状态桥无法解析: ${error.message}`);
+}
+
+const updatedAt = Date.parse(data.updatedAt || '');
+if (!Number.isFinite(updatedAt) || Date.now() - updatedAt > 30000) {
+  fail('状态桥不是最新状态');
+}
+
+const timeOfDay = Number(data.timeOfDay || 0);
+const nightTransition = data.passoutWindow === true
+  || data.saveOnNewDay === true
+  || data.sleepInProgress === true
+  || data.saving === true
+  || timeOfDay >= 2600;
+
+if (!nightTransition) {
+  fail(`不是2点/过夜流程，当前时间=${timeOfDay || 'unknown'}`);
+}
+
+console.log('ok');
+NODE
+)
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        log_passout "跳过按键处理：$reason"
+        return 1
+    fi
+
+    return 0
+}
+
 # ============================================
 # Event handlers
 # 事件处理函数
@@ -85,6 +147,10 @@ handle_passout() {
     log_passout "⚠️ 检测到晕倒事件（凌晨2点）"
     LAST_PASSOUT_TIME=$(date +%s)
 
+    if ! should_handle_passout_keys; then
+        return
+    fi
+
     if ! command -v xdotool >/dev/null 2>&1; then
         log_passout "❌ xdotool 未安装"
         return
@@ -92,12 +158,8 @@ handle_passout() {
 
     sleep 3
 
-    log_passout "  步骤 1: 关闭可能的菜单..."
-    send_key_locked Escape
-    sleep 0.5
-
-    log_passout "  步骤 2: 连续确认对话框..."
-    for i in 1 2 3 4 5; do
+    log_passout "  连续确认过夜对话框..."
+    for i in 1 2 3; do
         send_key_locked Return
         sleep 1
     done

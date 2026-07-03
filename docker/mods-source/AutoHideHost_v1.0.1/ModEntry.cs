@@ -173,6 +173,12 @@ namespace AutoHideHost
             // 3. DialogueBox（对话框）- 处理任务通知等阻塞性对话
             if (e.NewMenu is StardewValley.Menus.DialogueBox dialogueBox)
             {
+                if (IsNightTransitionOrPassoutWindow())
+                {
+                    this.Monitor.Log("检测到过夜/晕倒/保存流程中的DialogueBox，交给游戏原生流程处理", LogLevel.Info);
+                    return;
+                }
+
                 try
                 {
                     // 获取当前对话内容
@@ -196,16 +202,12 @@ namespace AutoHideHost
 
                         // 按ESC键关闭对话框（拒绝任务）
                         dialogueBox.receiveKeyPress(Microsoft.Xna.Framework.Input.Keys.Escape);
-                        Game1.activeClickableMenu = null;
 
                         this.Monitor.Log("✓ 任务通知已自动关闭（拒绝）", LogLevel.Info);
                         return;
                     }
 
-                    // 如果不是任务通知，也自动关闭（避免阻塞游戏流程）
-                    this.Monitor.Log("检测到非任务通知的DialogueBox，自动关闭", LogLevel.Info);
-                    dialogueBox.receiveKeyPress(Microsoft.Xna.Framework.Input.Keys.Escape);
-                    Game1.activeClickableMenu = null;
+                    this.Monitor.Log("检测到非任务通知的DialogueBox，保留给游戏原生流程处理", LogLevel.Debug);
                 }
                 catch (Exception ex)
                 {
@@ -221,7 +223,6 @@ namespace AutoHideHost
                 {
                     // 按ESC键关闭信件菜单
                     letterMenu.receiveKeyPress(Microsoft.Xna.Framework.Input.Keys.Escape);
-                    Game1.activeClickableMenu = null;
                     this.Monitor.Log("✓ LetterViewerMenu已自动关闭", LogLevel.Info);
                 }
                 catch (Exception ex)
@@ -282,9 +283,22 @@ namespace AutoHideHost
             // ShippingMenu关闭后可能出现DialogueBox
             if (Game1.activeClickableMenu is StardewValley.Menus.DialogueBox)
             {
-                this.Monitor.Log("OnSaving期间检测到DialogueBox，自动点击关闭", LogLevel.Info);
-                Game1.activeClickableMenu.receiveLeftClick(10, 10);
+                this.Monitor.Log("OnSaving期间检测到DialogueBox，跳过自动点击以避免打断过夜/晕倒流程", LogLevel.Info);
             }
+        }
+
+        private bool IsNightTransitionOrPassoutWindow()
+        {
+            if (!Context.IsWorldReady)
+                return false;
+
+            if (Game1.saveOnNewDay || isSleepInProgress || hasTriggeredSleep || needToSleep)
+                return true;
+
+            if (Game1.game1 != null && Game1.game1.IsSaving)
+                return true;
+
+            return Game1.timeOfDay >= 2600;
         }
 
         private void OnUpdateTicked(object sender, UpdateTickedEventArgs e)
@@ -908,6 +922,8 @@ namespace AutoHideHost
                 string activeMenu = worldReady ? (Game1.activeClickableMenu?.GetType().Name ?? "") : "";
                 string currentEventId = worldReady && Game1.CurrentEvent != null ? (Game1.CurrentEvent.id ?? "") : "";
                 bool currentEventSkippable = worldReady && Game1.CurrentEvent != null && Game1.CurrentEvent.skippable;
+                bool saveOnNewDay = worldReady && Game1.saveOnNewDay;
+                bool passoutWindow = worldReady && Game1.timeOfDay >= 2600;
                 string festivalId = "";
                 string festivalLocation = "";
                 int festivalStartTime = 0;
@@ -972,6 +988,8 @@ namespace AutoHideHost
                 json.Append($"  \"timeOfDay\": {(worldReady ? Game1.timeOfDay : 0)},\n");
                 json.Append($"  \"paused\": {JsonBool(worldReady && Game1.paused)},\n");
                 json.Append($"  \"saving\": {JsonBool(saving)},\n");
+                json.Append($"  \"saveOnNewDay\": {JsonBool(saveOnNewDay)},\n");
+                json.Append($"  \"passoutWindow\": {JsonBool(passoutWindow)},\n");
                 json.Append($"  \"activeMenu\": {JsonString(activeMenu)},\n");
                 json.Append($"  \"currentEvent\": {(string.IsNullOrWhiteSpace(currentEventId) ? "null" : "{" + $"\"id\":{JsonString(currentEventId)},\"skippable\":{JsonBool(currentEventSkippable)}" + "}")},\n");
                 json.Append($"  \"festival\": {festivalJson},\n");

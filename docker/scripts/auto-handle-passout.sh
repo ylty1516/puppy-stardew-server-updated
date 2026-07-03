@@ -10,6 +10,7 @@
 # 此脚本检测晕倒事件并确认对话框以继续游戏。
 
 SMAPI_LOG="/home/steam/.config/StardewValley/ErrorLogs/SMAPI-latest.txt"
+ENABLE_PASSOUT_KEY_AUTOMATION=${ENABLE_PASSOUT_KEY_AUTOMATION:-false}
 CHECK_INTERVAL=5  # Check every 5 seconds
 LOCK_FILE="/tmp/stardew-key-lock"
 LOCK_TIMEOUT=10
@@ -62,20 +63,22 @@ while true; do
         if [ "$CURRENT_PASSOUT_COUNT" -gt "$LAST_PASSOUT_COUNT" ]; then
             log "⚠️ 检测到新的晕倒事件（计数: $LAST_PASSOUT_COUNT -> $CURRENT_PASSOUT_COUNT）"
 
+            if [ "$ENABLE_PASSOUT_KEY_AUTOMATION" != "true" ]; then
+                log "按键自动处理默认关闭，跳过以避免误处理玩家野外晕倒"
+                LAST_PASSOUT_COUNT=$CURRENT_PASSOUT_COUNT
+                sleep $CHECK_INTERVAL
+                continue
+            fi
+
             # Wait for event to fully trigger
             sleep 3
 
             if command -v xdotool >/dev/null 2>&1; then
                 log "尝试确认晕倒对话框..."
 
-                # Press Escape to close any menus first
-                log "  步骤 1: 关闭可能的菜单..."
-                send_key_locked Escape
-                sleep 0.5
-
                 # Press Enter multiple times to confirm all dialogs/settlement screens
-                log "  步骤 2: 连续确认对话框..."
-                for i in 1 2 3 4 5; do
+                log "  连续确认对话框..."
+                for i in 1 2 3; do
                     send_key_locked Return
                     sleep 1
                 done
