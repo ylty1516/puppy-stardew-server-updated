@@ -64,6 +64,43 @@ const API = {
     return this.readJson(resp);
   },
 
+  async download(url, filename) {
+    const resp = await this.fetch(url, {
+      headers: { Accept: 'application/octet-stream' },
+    });
+    if (!resp) return null;
+
+    if (!resp.ok) {
+      return this.readJson(resp);
+    }
+
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = filename || this.getFilenameFromDisposition(resp.headers.get('content-disposition')) || 'download';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return { success: true };
+  },
+
+  getFilenameFromDisposition(disposition) {
+    if (!disposition) return '';
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match) {
+      try {
+        return decodeURIComponent(utf8Match[1].replace(/"/g, ''));
+      } catch (error) {
+        return utf8Match[1].replace(/"/g, '');
+      }
+    }
+
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return match ? match[1] : '';
+  },
+
   async readJson(resp) {
     const text = await resp.text();
     if (!text) {

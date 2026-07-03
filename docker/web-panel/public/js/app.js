@@ -900,10 +900,15 @@ async function loadSaves() {
             <div class="save-name">${icon('package', 'icon save-name-icon')}<span>${escapeHtml(b.filename)}</span></div>
             <div class="save-meta">${formatSize(b.size)} · ${new Date(b.date).toLocaleString(currentLang === 'zh' ? 'zh-CN' : 'en-US')}</div>
           </div>
-          <a href="/api/saves/download/${encodeURIComponent(b.filename)}" class="btn btn-sm btn-primary"
-             onclick="this.href=this.href.split('?')[0]+'?token='+API.token; return true;">${icon('download', 'icon')}</a>
+          <button class="btn btn-sm btn-primary backup-download-btn" type="button" data-filename="${escapeHtml(b.filename)}">${icon('download', 'icon')}</button>
         </div>
       `).join('');
+
+      list.querySelectorAll('.backup-download-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          downloadBackup(btn.dataset.filename);
+        });
+      });
     }
   }
 }
@@ -1512,6 +1517,17 @@ async function createBackup() {
   } else {
     showToast(formatApiError(data, t('toast.backupFail')), 'error', 7000);
   }
+}
+
+async function downloadBackup(filename) {
+  if (!filename) return;
+
+  const data = await API.download('/api/saves/download/' + encodeURIComponent(filename), filename);
+  if (data && data.success) {
+    return;
+  }
+
+  showToast(formatApiError(data, t('toast.backupFail')), 'error', 7000);
 }
 
 async function changePassword() {

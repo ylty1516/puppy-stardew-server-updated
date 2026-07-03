@@ -12,6 +12,49 @@ const { AppError, commandError, inferCause, sendError } = require('../errors');
 const BACKUP_STATUS_FILE = path.join(config.DATA_DIR, 'backup-status.json');
 let activeBackup = null;
 
+function readFreshGameState(maxAgeSeconds = 15) {
+  if (!config.GAME_STATE_FILE || !fs.existsSync(config.GAME_STATE_FILE)) {
+    return null;
+  }
+
+  const data = JSON.parse(fs.readFileSync(config.GAME_STATE_FILE, 'utf-8'));
+  const updatedAtMs = Date.parse(data.updatedAt || '');
+  if (!Number.isFinite(updatedAtMs)) {
+    return null;
+  }
+
+  const ageSeconds = Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000));
+  if (ageSeconds > maxAgeSeconds) {
+    return null;
+  }
+
+  return { ...data, ageSeconds };
+}
+
+function assertBackupSafeToStart() {
+  let gameState = null;
+  try {
+    gameState = readFreshGameState();
+  } catch (error) {
+    throw new AppError('Failed to read game state before backup', {
+      status: 503,
+      code: 'GAME_STATE_READ_FAILED',
+      cause: 'The panel could not read the SMAPI game-state bridge before starting a backup.',
+      details: error.message,
+      action: 'Check AutoHideHost and web-panel/data permissions, then retry the backup.',
+    });
+  }
+
+  if (gameState && gameState.saving === true) {
+    throw new AppError('Game is saving', {
+      status: 409,
+      code: 'GAME_SAVE_IN_PROGRESS',
+      cause: 'Stardew Valley is currently writing save data, so a backup could capture a partial save.',
+      action: 'Wait until saving finishes, then start the backup again.',
+    });
+  }
+}
+
 function isSuccessful(result) {
   return result && result.status === 0;
 }
@@ -452,6 +495,8 @@ function getBackupStatusSnapshot() {
 }
 
 function startBackupJob() {
+  assertBackupSafeToStart();
+
   if (!fs.existsSync(config.SAVES_DIR)) {
     throw new AppError('Save directory not found', {
       status: 404,
