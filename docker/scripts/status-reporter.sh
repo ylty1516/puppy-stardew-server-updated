@@ -19,6 +19,13 @@
 STATUS_FILE="/home/steam/.local/share/puppy-stardew/status.json"
 METRICS_FILE="/home/steam/.local/share/puppy-stardew/metrics.prom"
 SMAPI_LOG="/home/steam/.config/StardewValley/ErrorLogs/SMAPI-latest.txt"
+GAME_STATE_FILE=${GAME_STATE_FILE:-/home/steam/web-panel/data/game-state.json}
+GAME_STATE_MAX_AGE_SECONDS=${GAME_STATE_MAX_AGE_SECONDS:-30}
+case "$GAME_STATE_MAX_AGE_SECONDS" in
+    ''|*[!0-9]*)
+        GAME_STATE_MAX_AGE_SECONDS=30
+        ;;
+esac
 METRICS_PORT=${METRICS_PORT:-9090}
 UPDATE_INTERVAL=15
 
@@ -45,38 +52,82 @@ get_uptime_seconds() {
     echo "0"
 }
 
-get_player_count() {
-    if [ -f "$SMAPI_LOG" ]; then
-        awk '
-            function mark_join(id) {
-                if (id != "" && id != "Server" && id != "SMAPI") connected[id] = 1
-            }
-            function mark_leave(id) {
-                if (id != "") delete connected[id]
-            }
-            match($0, /Received connection for vanilla player ([A-Za-z0-9_]+)/, a) { mark_join(a[1]); next }
-            match($0, /Approved request for farmhand ([A-Za-z0-9_]+)/, a) { mark_join(a[1]); next }
-            match($0, /([A-Za-z0-9_]+) joined the game/, a) { mark_join(a[1]); next }
-            match($0, /farmhand ([A-Za-z0-9_]+) connected/, a) { mark_join(a[1]); next }
-            match($0, /client ([A-Za-z0-9_]+) connected/, a) { mark_join(a[1]); next }
-            match($0, /peer ([A-Za-z0-9_]+) joined/, a) { mark_join(a[1]); next }
-            match($0, /([A-Za-z0-9_]+) connected/, a) { mark_join(a[1]); next }
-            match($0, /([A-Za-z0-9_]+) left the game/, a) { mark_leave(a[1]); next }
-            match($0, /farmhand ([A-Za-z0-9_]+) disconnected/, a) { mark_leave(a[1]); next }
-            match($0, /client ([A-Za-z0-9_]+) disconnected/, a) { mark_leave(a[1]); next }
-            match($0, /peer ([A-Za-z0-9_]+) left/, a) { mark_leave(a[1]); next }
-            match($0, /connection ([A-Za-z0-9_]+) disconnected/, a) { mark_leave(a[1]); next }
-            match($0, /player ([A-Za-z0-9_]+) disconnected/, a) { mark_leave(a[1]); next }
-            match($0, /([A-Za-z0-9_]+) disconnected/, a) { mark_leave(a[1]); next }
-            END {
-                count = 0
-                for (id in connected) count++
-                print count
-            }
-        ' "$SMAPI_LOG" 2>/dev/null || echo "0"
-    else
-        echo "0"
+get_game_state_snapshot() {
+    if node - "$GAME_STATE_FILE" "$GAME_STATE_MAX_AGE_SECONDS" <<'NODE' 2>/dev/null
+const fs = require('fs');
+const file = process.argv[2] || '';
+const maxAgeSeconds = Math.max(5, Number(process.argv[3]) || 30);
+const snapshot = {
+  players: 0,
+  fresh: 0,
+  age: -1,
+  world_ready: 0,
+  multiplayer_ready: 0,
+  joinable: 0,
+  paused: 0,
+  source: 'missing',
+  updated_at: '',
+};
+
+try {
+  if (!file || !fs.existsSync(file)) {
+    throw new Error('missing');
+  }
+
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const updatedAtMs = Date.parse(data.updatedAt || '');
+  const age = Number.isFinite(updatedAtMs)
+    ? Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000))
+    : -1;
+  const fresh = age >= 0 && age <= maxAgeSeconds;
+  const visiblePlayers = Array.isArray(data.onlinePlayers)
+    ? data.onlinePlayers.filter(player => player && player.isHost !== true)
+    : [];
+
+  snapshot.players = fresh ? visiblePlayers.length : 0;
+  snapshot.fresh = fresh ? 1 : 0;
+  snapshot.age = age;
+  snapshot.world_ready = data.worldReady === true ? 1 : 0;
+  snapshot.multiplayer_ready = data.multiplayerReady === true ? 1 : 0;
+  snapshot.joinable = fresh && data.joinable === true ? 1 : 0;
+  snapshot.paused = fresh && data.paused === true ? 1 : 0;
+  snapshot.source = fresh ? 'smapi-state-bridge' : 'stale-smapi-state-bridge';
+  snapshot.updated_at = typeof data.updatedAt === 'string' ? data.updatedAt : '';
+} catch (error) {
+  snapshot.source = error.message === 'missing' ? 'missing' : 'error';
+}
+
+for (const [key, value] of Object.entries(snapshot)) {
+  console.log(`${key}=${String(value).replace(/[\r\n=]/g, ' ')}`);
+}
+NODE
+    then
+        return 0
     fi
+
+    echo "players=0"
+    echo "fresh=0"
+    echo "age=-1"
+    echo "world_ready=0"
+    echo "multiplayer_ready=0"
+    echo "joinable=0"
+    echo "paused=0"
+    echo "source=error"
+    echo "updated_at="
+}
+
+get_player_count() {
+    local snapshot players
+    snapshot=$(get_game_state_snapshot)
+    players=$(echo "$snapshot" | awk -F= '$1 == "players" { print $2; exit }')
+    case "$players" in
+        ''|*[!0-9]*)
+            echo "0"
+            ;;
+        *)
+            echo "$players"
+            ;;
+    esac
 }
 
 get_game_day() {
@@ -157,14 +208,42 @@ update_metrics() {
     pgrep -f StardewModdingAPI >/dev/null 2>&1 && game_running=1
 
     local uptime=$(get_uptime_seconds)
-    local players=$(get_player_count)
+    local state_snapshot
+    state_snapshot=$(get_game_state_snapshot)
+    local players=0
+    local state_bridge_fresh=0
+    local state_bridge_age=-1
+    local state_world_ready=0
+    local state_multiplayer_ready=0
+    local state_joinable=0
+    local state_paused=0
+    local player_count_source="missing"
+    local state_updated_at=""
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            players) players=${value:-0} ;;
+            fresh) state_bridge_fresh=${value:-0} ;;
+            age) state_bridge_age=${value:--1} ;;
+            world_ready) state_world_ready=${value:-0} ;;
+            multiplayer_ready) state_multiplayer_ready=${value:-0} ;;
+            joinable) state_joinable=${value:-0} ;;
+            paused) state_paused=${value:-0} ;;
+            source) player_count_source=${value:-missing} ;;
+            updated_at) state_updated_at=${value:-} ;;
+        esac
+    done <<< "$state_snapshot"
+
     case "$players" in
         ''|*[!0-9]*)
             players=0
             ;;
     esac
     local game_day=$(get_game_day)
-    local game_paused=$(get_game_paused)
+    local game_paused=$state_paused
+    if [ "$state_bridge_fresh" != "1" ]; then
+        game_paused=$(get_game_paused)
+    fi
     local memory=$(get_memory_usage_mb)
     local cpu=$(get_cpu_usage)
     local events=($(get_event_counts))
@@ -188,6 +267,26 @@ puppy_stardew_uptime_seconds $uptime
 # HELP puppy_stardew_players_online Number of players currently connected.
 # TYPE puppy_stardew_players_online gauge
 puppy_stardew_players_online $players
+
+# HELP puppy_stardew_state_bridge_fresh Whether AutoHideHost game-state.json is fresh.
+# TYPE puppy_stardew_state_bridge_fresh gauge
+puppy_stardew_state_bridge_fresh $state_bridge_fresh
+
+# HELP puppy_stardew_state_bridge_age_seconds Age of AutoHideHost game-state.json in seconds, or -1 if unavailable.
+# TYPE puppy_stardew_state_bridge_age_seconds gauge
+puppy_stardew_state_bridge_age_seconds $state_bridge_age
+
+# HELP puppy_stardew_world_ready Whether the Stardew save is loaded.
+# TYPE puppy_stardew_world_ready gauge
+puppy_stardew_world_ready $state_world_ready
+
+# HELP puppy_stardew_multiplayer_ready Whether the multiplayer server layer is initialized.
+# TYPE puppy_stardew_multiplayer_ready gauge
+puppy_stardew_multiplayer_ready $state_multiplayer_ready
+
+# HELP puppy_stardew_joinable Whether players should be able to join right now.
+# TYPE puppy_stardew_joinable gauge
+puppy_stardew_joinable $state_joinable
 
 # HELP puppy_stardew_memory_usage_mb Game process RSS memory usage in megabytes.
 # TYPE puppy_stardew_memory_usage_mb gauge
@@ -228,7 +327,17 @@ EOPROM
   "game": {
     "day": "$game_day",
     "players_online": $players,
-    "paused": $([ "$game_paused" = "1" ] && echo "true" || echo "false")
+    "player_count_source": "$player_count_source",
+    "paused": $([ "$game_paused" = "1" ] && echo "true" || echo "false"),
+    "world_ready": $([ "$state_world_ready" = "1" ] && echo "true" || echo "false"),
+    "multiplayer_ready": $([ "$state_multiplayer_ready" = "1" ] && echo "true" || echo "false"),
+    "joinable": $([ "$state_joinable" = "1" ] && echo "true" || echo "false")
+  },
+  "state_bridge": {
+    "fresh": $([ "$state_bridge_fresh" = "1" ] && echo "true" || echo "false"),
+    "age_seconds": $state_bridge_age,
+    "updated_at": "$state_updated_at",
+    "max_age_seconds": $GAME_STATE_MAX_AGE_SECONDS
   },
   "resources": {
     "memory_mb": $memory,

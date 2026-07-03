@@ -40,17 +40,17 @@ print_header() {
 
 print_success() {
     echo -e "${GREEN}✅ $1${NC}"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 print_error() {
     echo -e "${RED}❌ $1${NC}"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 print_warning() {
     echo -e "${YELLOW}⚠️  $1${NC}"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS + 1))
 }
 
 print_info() {
@@ -138,8 +138,128 @@ check_smapi_running() {
     fi
 }
 
+get_container_state_summary() {
+    docker exec "$CONTAINER_NAME" node -e '
+const fs = require("fs");
+const file = process.env.GAME_STATE_FILE || "/home/steam/web-panel/data/game-state.json";
+const maxAgeSeconds = 30;
+
+function print(fields) {
+  console.log(fields.map(value => String(value).replace(/[\r\n|]/g, " ")).join("|"));
+}
+
+try {
+  if (!fs.existsSync(file)) {
+    print(["missing", -1, 0, 0, 0, 0, "", ""]);
+    process.exit(0);
+  }
+
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  const updatedAtMs = Date.parse(data.updatedAt || "");
+  const ageSeconds = Number.isFinite(updatedAtMs)
+    ? Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000))
+    : -1;
+  const fresh = ageSeconds >= 0 && ageSeconds <= maxAgeSeconds;
+  const visiblePlayers = Array.isArray(data.onlinePlayers)
+    ? data.onlinePlayers.filter(player => player && player.isHost !== true)
+    : [];
+
+  print([
+    fresh ? "fresh" : "stale",
+    ageSeconds,
+    data.worldReady === true ? 1 : 0,
+    data.multiplayerReady === true ? 1 : 0,
+    fresh && data.joinable === true ? 1 : 0,
+    fresh ? visiblePlayers.length : 0,
+    data.joinableReason || "",
+    data.updatedAt || ""
+  ]);
+} catch (error) {
+  print(["error", -1, 0, 0, 0, 0, error.message, ""]);
+}
+' 2>/dev/null || true
+}
+
+check_web_panel() {
+    print_test "5. Checking web panel..."
+
+    if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 http://127.0.0.1:18642/api/auth/status >/dev/null' 2>/dev/null; then
+        print_success "Web panel API is reachable inside the container"
+    else
+        print_error "Web panel API is not reachable on port 18642"
+        print_info "Check panel logs: docker logs $CONTAINER_NAME | grep -i \"Web Panel\""
+        return 1
+    fi
+}
+
+check_state_bridge() {
+    print_test "6. Checking SMAPI state bridge..."
+
+    local summary freshness age world_ready multiplayer_ready joinable players reason updated_at
+    summary=$(get_container_state_summary)
+    IFS='|' read -r freshness age world_ready multiplayer_ready joinable players reason updated_at <<< "$summary"
+
+    case "$freshness" in
+        fresh)
+            print_success "State bridge is fresh (${age}s old, ${players:-0} visible player(s))"
+            ;;
+        stale)
+            print_warning "State bridge exists but is stale (${age}s old)"
+            print_info "AutoHideHost may have stopped writing game-state.json or the game may be frozen."
+            ;;
+        missing|"")
+            print_warning "State bridge has not been written yet"
+            print_info "Wait for the save to load, then rerun this check. If it never appears, verify AutoHideHost loaded."
+            ;;
+        *)
+            print_warning "State bridge could not be parsed: ${reason:-unknown error}"
+            ;;
+    esac
+}
+
+check_joinability() {
+    print_test "7. Checking player joinability..."
+
+    local summary freshness age world_ready multiplayer_ready joinable players reason updated_at
+    summary=$(get_container_state_summary)
+    IFS='|' read -r freshness age world_ready multiplayer_ready joinable players reason updated_at <<< "$summary"
+
+    if [ "$freshness" != "fresh" ]; then
+        print_warning "Joinability is unknown because the SMAPI state bridge is not fresh"
+        return 0
+    fi
+
+    if [ "$joinable" = "1" ]; then
+        print_success "Game state says players should be able to join now"
+        return 0
+    fi
+
+    case "$reason" in
+        world_not_ready)
+            print_warning "Save is not loaded yet; players cannot join until ServerAutoLoad finishes"
+            ;;
+        saving)
+            print_warning "Game is saving; joinability should recover after saving finishes"
+            ;;
+        blocking_event)
+            print_warning "A non-skippable event is blocking the host; use VNC if it stays stuck"
+            ;;
+        menu_open)
+            print_warning "A host menu is open; automation may close it, otherwise use VNC"
+            ;;
+        not_main_server|multiplayer_not_initialized)
+            print_error "Multiplayer hosting is not ready (${reason:-unknown})"
+            print_info "Load the farm through Co-op/VNC or restart the container after the save is configured."
+            return 1
+            ;;
+        *)
+            print_warning "Game is not joinable yet (${reason:-unknown reason})"
+            ;;
+    esac
+}
+
 check_mods_loaded() {
-    print_test "5. Checking mods..."
+    print_test "8. Checking mods..."
 
     # Check last 100 lines of logs for mod loading messages
     mod_count=$(docker logs --tail 100 $CONTAINER_NAME 2>&1 | grep -c "Loaded.*mod" || true)
@@ -161,7 +281,7 @@ check_mods_loaded() {
 }
 
 check_ports() {
-    print_test "6. Checking port bindings..."
+    print_test "9. Checking port bindings..."
 
     # Check game port (24642/udp)
     if docker port $CONTAINER_NAME 24642/udp &> /dev/null; then
@@ -179,10 +299,36 @@ check_ports() {
     else
         print_info "VNC port not mapped (disabled or not configured)"
     fi
+
+    if docker port $CONTAINER_NAME 18642/tcp &> /dev/null; then
+        panel_port=$(docker port $CONTAINER_NAME 18642/tcp)
+        print_success "Web panel port is mapped: $panel_port"
+    else
+        print_error "Web panel port (18642/tcp) is not mapped"
+        return 1
+    fi
+
+    if docker port $CONTAINER_NAME 9090/tcp &> /dev/null; then
+        metrics_port=$(docker port $CONTAINER_NAME 9090/tcp)
+        print_success "Metrics port is mapped: $metrics_port"
+    else
+        print_warning "Metrics port (9090/tcp) is not mapped"
+    fi
+}
+
+check_metrics_endpoint() {
+    print_test "10. Checking metrics endpoint..."
+
+    if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 "http://127.0.0.1:${METRICS_PORT:-9090}/metrics" | grep -q puppy_stardew_game_running' 2>/dev/null; then
+        print_success "Prometheus metrics endpoint is responding"
+    else
+        print_warning "Metrics endpoint is not responding yet"
+        print_info "If this persists, check status-reporter.sh and the netcat dependency."
+    fi
 }
 
 check_resources() {
-    print_test "7. Checking resource usage..."
+    print_test "11. Checking resource usage..."
 
     # Get CPU and memory usage
     stats=$(docker stats $CONTAINER_NAME --no-stream --format "{{.CPUPerc}},{{.MemUsage}}")
@@ -203,7 +349,7 @@ check_resources() {
 }
 
 check_disk_space() {
-    print_test "8. Checking disk space..."
+    print_test "12. Checking disk space..."
 
     # Check if data directory exists
     if [ ! -d "./data" ]; then
@@ -223,7 +369,7 @@ check_disk_space() {
 }
 
 check_firewall() {
-    print_test "9. Checking firewall..."
+    print_test "13. Checking firewall..."
 
     # This is tricky to check automatically, so just provide guidance
     print_info "Make sure port 24642/udp is open in your firewall:"
@@ -295,8 +441,12 @@ main() {
     check_container_running || true
     check_container_health || true
     check_smapi_running || true
+    check_web_panel || true
+    check_state_bridge || true
+    check_joinability || true
     check_mods_loaded || true
     check_ports || true
+    check_metrics_endpoint || true
     check_resources || true
     check_disk_space || true
     check_firewall || true

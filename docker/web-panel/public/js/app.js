@@ -31,6 +31,11 @@ let lastStatusData = null;
 let backupStatusPoll = null;
 let lastBackupStatus = null;
 
+const STATUS_REFRESH_MS = 20000;
+const PLAYERS_REFRESH_MS = 20000;
+const BACKUP_STATUS_POLL_MS = 2000;
+const CONTAINER_RECONNECT_POLL_MS = 2000;
+
 function detectTheme() {
   const saved = localStorage.getItem('panel_theme');
   if (saved === 'dark' || saved === 'light') {
@@ -313,6 +318,13 @@ function setText(id, value) {
   }
 }
 
+function setTone(el, tone) {
+  if (!el) return;
+  el.classList.toggle('ok', tone === 'ok');
+  el.classList.toggle('warn', tone === 'warn');
+  el.classList.toggle('error', tone === 'error');
+}
+
 function applyTheme() {
   document.documentElement.dataset.theme = currentTheme;
   const themeIcon = document.querySelector('#themeToggle use');
@@ -411,7 +423,7 @@ function init() {
   };
 
   // Auto-refresh dashboard
-  statusInterval = setInterval(loadDashboard, 20000);
+  statusInterval = setInterval(loadDashboard, STATUS_REFRESH_MS);
 }
 
 function reloadCurrentPage() {
@@ -453,7 +465,7 @@ function startPlayersAutoRefresh() {
     if (currentPage === 'players') {
       loadPlayers();
     }
-  }, 20000);
+  }, PLAYERS_REFRESH_MS);
 }
 
 function stopPlayersAutoRefresh() {
@@ -664,8 +676,7 @@ function updateJoinabilityUI(joinability) {
 
   if (value) {
     value.textContent = joinable ? t('join.ready') : t('join.blocked');
-    value.classList.toggle('ok', joinable);
-    value.classList.toggle('warn', !joinable);
+    setTone(value, joinable ? 'ok' : 'warn');
   }
 
   if (note) {
@@ -681,9 +692,7 @@ function updateModRuntimeUI(modRuntime) {
 
   if (value) {
     value.textContent = t(`mod.state.${state}`);
-    value.classList.toggle('ok', active);
-    value.classList.toggle('warn', !active && state !== 'stopped');
-    value.classList.toggle('error', state === 'stopped');
+    setTone(value, active ? 'ok' : state === 'stopped' ? 'error' : 'warn');
   }
 
   if (note) {
@@ -910,7 +919,7 @@ async function loadPlayers() {
     list.innerHTML = `<div class="empty-state">
       ${icon('players', 'icon empty-icon')}
       <div>${t('players.none')}</div>
-      <div style="margin-top:8px;color:var(--text-muted)">${tf('players.online', { online: data.online, max: data.max })}</div>
+      <div class="players-online-note">${tf('players.online', { online: data.online, max: data.max })}</div>
     </div>`;
     return;
   }
@@ -1165,7 +1174,7 @@ function startBackupStatusPolling() {
 
   backupStatusPoll = setInterval(function() {
     loadBackupStatus(true);
-  }, 2000);
+  }, BACKUP_STATUS_POLL_MS);
 }
 
 function applyBackupStatus(status, silent) {
@@ -1219,7 +1228,7 @@ async function loadConfig() {
 
       let valueHtml;
       if (item.readonly) {
-        valueHtml = '<span style="color:var(--text-muted)">' + (item.sensitive ? '••••••••' : escapeHtml(item.value || '--')) + '</span>';
+        valueHtml = '<span class="config-readonly-value">' + (item.sensitive ? '••••••••' : escapeHtml(item.value || '--')) + '</span>';
       } else if (item.type === 'boolean') {
         const checked = item.value === 'true' || item.hasValue && item.value !== 'false' ? 'checked' : '';
         valueHtml = '<label class="toggle">' +
@@ -1227,7 +1236,7 @@ async function loadConfig() {
           '<span class="toggle-slider"></span>' +
         '</label>';
       } else if (item.options && item.options.length > 0) {
-        valueHtml = '<select class="input" data-key="' + item.key + '" style="width:220px" onchange="configChanged()">' +
+        valueHtml = '<select class="input config-select" data-key="' + item.key + '" onchange="configChanged()">' +
           item.options.map(function(option) {
             var selected = option === (item.value || '') ? ' selected' : '';
             var label = option === '' ? t('config.autoDetect') : option;
@@ -1237,22 +1246,22 @@ async function loadConfig() {
       } else if (item.viewable) {
         // Viewable password field (e.g. VNC_PASSWORD) - show real value with toggle
         valueHtml = '<div class="password-wrapper">' +
-          '<input type="password" class="input" data-key="' + item.key + '"' +
+          '<input type="password" class="input config-input" data-key="' + item.key + '"' +
           ' value="' + escapeHtml(item.value || '') + '"' +
           ' placeholder="' + escapeHtml(item.default || '') + '"' +
           (item.maxLength ? ' maxlength="' + item.maxLength + '"' : '') +
-          ' style="width:150px" onchange="configChanged()" oninput="configChanged()">' +
+          ' onchange="configChanged()" oninput="configChanged()">' +
           '<button type="button" class="password-toggle" onclick="togglePasswordVisibility(this)" title="' + t('config.showPassword') + '">' +
           icon('eye', 'icon') +
           '</button>' +
         '</div>';
       } else if (item.sensitive) {
         // Truly sensitive fields (e.g. STEAM_PASSWORD) - never show value
-        valueHtml = '<input type="password" class="input" data-key="' + item.key + '" placeholder="••••••••" style="width:150px" onchange="configChanged()">';
+        valueHtml = '<input type="password" class="input config-input" data-key="' + item.key + '" placeholder="••••••••" onchange="configChanged()">';
       } else {
-        valueHtml = '<input type="' + (item.type === 'number' ? 'number' : 'text') + '" class="input" data-key="' + item.key + '"' +
+        valueHtml = '<input type="' + (item.type === 'number' ? 'number' : 'text') + '" class="input config-input" data-key="' + item.key + '"' +
           ' value="' + escapeHtml(item.value || '') + '" placeholder="' + escapeHtml(item.default || '') + '"' +
-          ' style="width:150px" onchange="configChanged()" oninput="configChanged()">';
+          ' onchange="configChanged()" oninput="configChanged()">';
       }
 
       row.innerHTML =
@@ -1271,7 +1280,7 @@ async function loadConfig() {
 
   // Add save button (always visible but starts hidden, shown on change)
   const saveBtn = document.createElement('div');
-  saveBtn.style.textAlign = 'right';
+  saveBtn.className = 'config-save-row';
   saveBtn.innerHTML = '<button class="btn btn-success" id="saveConfigBtn" onclick="saveConfig()" style="display:none">' + t('config.saveChanges') + '</button>';
   container.appendChild(saveBtn);
 }
@@ -1400,7 +1409,7 @@ function startContainerReconnectPolling() {
       containerReconnectPoll = null;
       window.location.reload();
     }
-  }, 2000);
+  }, CONTAINER_RECONNECT_POLL_MS);
 }
 
 // ─── Mods ────────────────────────────────────────────────────────
@@ -1412,13 +1421,13 @@ async function loadMods() {
 
   // Upload section
   var uploadHtml = `
-    <div class="card" style="margin-bottom:16px;padding:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <input type="file" id="modFileInput" accept=".zip" style="display:none" onchange="handleModUpload(this)">
+    <div class="card mod-upload-panel">
+      <input type="file" id="modFileInput" class="hidden-file" accept=".zip" onchange="handleModUpload(this)">
       <button class="btn btn-primary" onclick="document.getElementById('modFileInput').click()">
         ${icon('mods', 'icon')} ${t('mods.upload')}
       </button>
-      <span style="color:var(--text-muted);font-size:13px">${t('mods.uploadHint')}</span>
-      <span id="modUploadStatus" style="color:var(--text-muted);font-size:13px"></span>
+      <span class="mod-upload-hint">${t('mods.uploadHint')}</span>
+      <span id="modUploadStatus" class="mod-upload-status"></span>
     </div>
   `;
 
@@ -1429,7 +1438,7 @@ async function loadMods() {
 
   list.innerHTML = uploadHtml + data.mods.map(function(m) {
     var deleteBtn = m.isCustom
-      ? '<button class="btn btn-sm mod-delete-btn" style="color:#ef4444;border-color:#ef4444" data-folder="' + escapeHtml(m.folder) + '" data-name="' + escapeHtml(m.name) + '">' + icon('trash', 'icon') + ' ' + t('mods.delete') + '</button>'
+      ? '<button class="btn btn-sm btn-danger-outline mod-delete-btn" data-folder="' + escapeHtml(m.folder) + '" data-name="' + escapeHtml(m.name) + '">' + icon('trash', 'icon') + ' ' + t('mods.delete') + '</button>'
       : '';
     return '<div class="mod-item">' +
       '<div class="mod-info">' +
@@ -1437,7 +1446,7 @@ async function loadMods() {
         '<div class="mod-meta">v' + escapeHtml(m.version) + ' · ' + escapeHtml(m.author || '') + ' · ' + escapeHtml(m.id) + '</div>' +
         (m.description ? '<div class="mod-meta">' + escapeHtml(m.description) + '</div>' : '') +
       '</div>' +
-      '<div style="display:flex;align-items:center;gap:8px">' +
+      '<div class="mod-actions">' +
         '<span class="mod-badge ' + (m.isCustom ? 'custom' : '') + '">' + (m.isCustom ? t('mods.custom') : t('mods.builtin')) + '</span>' +
         deleteBtn +
       '</div>' +
@@ -1561,7 +1570,7 @@ async function toggleManualPause() {
     }
     updateManualPauseUI(manualPause);
     showToast(manualPause.enabled ? t('toast.pauseOn') : t('toast.pauseOff'), 'success');
-    loadStatus();
+    loadDashboard();
   } else {
     showToast(formatApiError(data, t('toast.pauseFail')), 'error', 7000);
     updateManualPauseUI(lastStatusData?.manualPause || { enabled: current });

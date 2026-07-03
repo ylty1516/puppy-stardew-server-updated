@@ -12,6 +12,7 @@ NC='\033[0m'
 PASS=0
 FAIL=0
 WARN=0
+CONTAINER_NAME=${CONTAINER_NAME:-puppy-stardew}
 
 check_pass() {
     echo -e "${GREEN}✓ PASS${NC} - $1"
@@ -34,11 +35,59 @@ echo -e "${BLUE}  部署验证检查${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
+if ! command -v docker >/dev/null 2>&1; then
+    check_fail "Docker command not found"
+    exit 1
+fi
+
+if ! docker ps >/dev/null 2>&1; then
+    check_fail "Docker is not running or current user cannot access it"
+    exit 1
+fi
+
+get_state_summary() {
+    docker exec "$CONTAINER_NAME" node -e '
+const fs = require("fs");
+const file = process.env.GAME_STATE_FILE || "/home/steam/web-panel/data/game-state.json";
+const maxAgeSeconds = 30;
+function print(fields) {
+  console.log(fields.map(value => String(value).replace(/[\r\n|]/g, " ")).join("|"));
+}
+try {
+  if (!fs.existsSync(file)) {
+    print(["missing", -1, 0, 0, 0, 0, "", ""]);
+    process.exit(0);
+  }
+  const data = JSON.parse(fs.readFileSync(file, "utf8"));
+  const updatedAtMs = Date.parse(data.updatedAt || "");
+  const ageSeconds = Number.isFinite(updatedAtMs)
+    ? Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000))
+    : -1;
+  const fresh = ageSeconds >= 0 && ageSeconds <= maxAgeSeconds;
+  const visiblePlayers = Array.isArray(data.onlinePlayers)
+    ? data.onlinePlayers.filter(player => player && player.isHost !== true)
+    : [];
+  print([
+    fresh ? "fresh" : "stale",
+    ageSeconds,
+    data.worldReady === true ? 1 : 0,
+    data.multiplayerReady === true ? 1 : 0,
+    fresh && data.joinable === true ? 1 : 0,
+    fresh ? visiblePlayers.length : 0,
+    data.joinableReason || "",
+    data.updatedAt || ""
+  ]);
+} catch (error) {
+  print(["error", -1, 0, 0, 0, 0, error.message, ""]);
+}
+' 2>/dev/null || true
+}
+
 # 获取日志
-LOG=$(docker logs puppy-stardew 2>&1)
+LOG=$(docker logs "$CONTAINER_NAME" 2>&1 || true)
 
 echo -e "${CYAN}[1/10] Container Status${NC}"
-if docker ps | grep -q puppy-stardew; then
+if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     check_pass "Container is running"
 else
     check_fail "Container is not running"
@@ -128,17 +177,68 @@ else
 fi
 echo ""
 
+echo -e "${CYAN}[Runtime] Web Panel API${NC}"
+if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 http://127.0.0.1:18642/api/auth/status >/dev/null' 2>/dev/null; then
+    check_pass "Web panel API is reachable"
+else
+    check_fail "Web panel API is not reachable on port 18642"
+fi
+echo ""
+
+echo -e "${CYAN}[Runtime] SMAPI State Bridge${NC}"
+STATE_SUMMARY=$(get_state_summary)
+IFS='|' read -r STATE_FRESHNESS STATE_AGE STATE_WORLD_READY STATE_MULTIPLAYER_READY STATE_JOINABLE STATE_PLAYERS STATE_REASON STATE_UPDATED_AT <<< "$STATE_SUMMARY"
+case "$STATE_FRESHNESS" in
+    fresh)
+        check_pass "game-state.json is fresh (${STATE_AGE}s old, ${STATE_PLAYERS:-0} visible player(s))"
+        ;;
+    stale)
+        check_warn "game-state.json is stale (${STATE_AGE}s old)"
+        ;;
+    missing|"")
+        check_warn "game-state.json has not been written yet"
+        ;;
+    *)
+        check_warn "game-state.json could not be parsed: ${STATE_REASON:-unknown error}"
+        ;;
+esac
+echo ""
+
+echo -e "${CYAN}[Runtime] Player Joinability${NC}"
+if [ "$STATE_FRESHNESS" != "fresh" ]; then
+    check_warn "Joinability is unknown until the state bridge is fresh"
+elif [ "$STATE_JOINABLE" = "1" ]; then
+    check_pass "Players should be able to join now"
+else
+    case "$STATE_REASON" in
+        world_not_ready|saving|menu_open|blocking_event)
+            check_warn "Players cannot join right now: ${STATE_REASON}"
+            ;;
+        not_main_server|multiplayer_not_initialized)
+            check_fail "Multiplayer hosting is not ready: ${STATE_REASON}"
+            ;;
+        *)
+            check_warn "Joinability is not ready: ${STATE_REASON:-unknown}"
+            ;;
+    esac
+fi
+echo ""
+
+echo -e "${CYAN}[Runtime] Metrics Endpoint${NC}"
+if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 "http://127.0.0.1:${METRICS_PORT:-9090}/metrics" | grep -q puppy_stardew_game_running' 2>/dev/null; then
+    check_pass "Metrics endpoint is reachable"
+else
+    check_warn "Metrics endpoint is not reachable yet"
+fi
+echo ""
+
 # 检查错误
 echo -e "${CYAN}[Error Check] Searching for errors...${NC}"
-if echo "$LOG" | grep -iq "error" | grep -v "ERROR (Rate Limit)" | head -5; then
-    ERROR_LINES=$(echo "$LOG" | grep -i "error" | grep -v "Rate Limit" | tail -3)
-    if [ -n "$ERROR_LINES" ]; then
-        check_warn "Found error messages in logs (review recommended)"
-        echo -e "${YELLOW}Recent errors:${NC}"
-        echo "$ERROR_LINES"
-    else
-        check_pass "No critical errors found"
-    fi
+ERROR_LINES=$(echo "$LOG" | grep -i "error" | grep -vi "Rate Limit" | tail -3 || true)
+if [ -n "$ERROR_LINES" ]; then
+    check_warn "Found error messages in logs (review recommended)"
+    echo -e "${YELLOW}Recent errors:${NC}"
+    echo "$ERROR_LINES"
 else
     check_pass "No errors found in logs"
 fi
@@ -146,16 +246,22 @@ echo ""
 
 # 端口检查
 echo -e "${CYAN}[Port Check] Checking open ports...${NC}"
-if netstat -tuln 2>/dev/null | grep -q ":24642"; then
-    check_pass "Game port 24642/udp is listening"
+if docker port "$CONTAINER_NAME" 24642/udp >/dev/null 2>&1; then
+    check_pass "Game port 24642/udp is mapped: $(docker port "$CONTAINER_NAME" 24642/udp)"
 else
-    check_warn "Port 24642 not detected (netstat may not be available)"
+    check_fail "Game port 24642/udp is not mapped"
 fi
 
-if netstat -tuln 2>/dev/null | grep -q ":5900"; then
-    check_pass "VNC port 5900/tcp is listening"
+if docker port "$CONTAINER_NAME" 18642/tcp >/dev/null 2>&1; then
+    check_pass "Web panel port 18642/tcp is mapped: $(docker port "$CONTAINER_NAME" 18642/tcp)"
 else
-    check_warn "Port 5900 not detected (VNC may be disabled)"
+    check_fail "Web panel port 18642/tcp is not mapped"
+fi
+
+if docker port "$CONTAINER_NAME" 5900/tcp >/dev/null 2>&1; then
+    check_pass "VNC port 5900/tcp is mapped: $(docker port "$CONTAINER_NAME" 5900/tcp)"
+else
+    check_warn "VNC port 5900/tcp is not mapped (VNC may be disabled)"
 fi
 echo ""
 
@@ -181,6 +287,6 @@ else
     echo -e "${RED}✗ Deployment has issues${NC}"
     echo -e "${RED}✗ 部署存在问题${NC}"
     echo ""
-    echo -e "Review full logs with: docker logs puppy-stardew"
+    echo -e "Review full logs with: docker logs $CONTAINER_NAME"
     exit 1
 fi

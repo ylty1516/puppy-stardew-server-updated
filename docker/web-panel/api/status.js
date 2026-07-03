@@ -8,6 +8,7 @@ const http = require('http');
 const https = require('https');
 const config = require('../server');
 const { AppError, commandError, sendError } = require('../errors');
+const { getVisiblePlayers, readGameStateBridge } = require('./game-state');
 
 // Status history (in-memory, last 1 hour, every 15s = 240 entries)
 const statusHistory = [];
@@ -198,41 +199,6 @@ function writeManualPauseState(enabled, reason = '') {
     ...state,
     file: config.MANUAL_PAUSE_FILE,
   };
-}
-
-function readGameStateBridge() {
-  const emptyState = {
-    available: false,
-    stale: true,
-    ageSeconds: null,
-    file: config.GAME_STATE_FILE,
-  };
-
-  try {
-    if (!config.GAME_STATE_FILE || !fs.existsSync(config.GAME_STATE_FILE)) {
-      return emptyState;
-    }
-
-    const data = JSON.parse(fs.readFileSync(config.GAME_STATE_FILE, 'utf-8'));
-    const updatedAtMs = Date.parse(data.updatedAt || '');
-    const ageSeconds = Number.isFinite(updatedAtMs)
-      ? Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000))
-      : null;
-    const stale = ageSeconds === null || ageSeconds > 15;
-
-    return {
-      ...data,
-      available: true,
-      stale,
-      ageSeconds,
-      file: config.GAME_STATE_FILE,
-    };
-  } catch (error) {
-    return {
-      ...emptyState,
-      error: error.message,
-    };
-  }
 }
 
 function formatGameDay(gameState) {
@@ -489,9 +455,9 @@ function collectStatus(req = null) {
     status.health.saveLoaded = gameState.worldReady === true;
     status.health.multiplayerReady = gameState.multiplayerReady === true;
     status.health.joinable = gameState.joinable === true;
-    const onlinePlayers = Array.isArray(gameState.onlinePlayers) ? gameState.onlinePlayers : [];
-    status.players.online = onlinePlayers.filter(player => player && player.isHost !== true).length;
-    status.players.list = Array.isArray(gameState.onlinePlayers) ? gameState.onlinePlayers : [];
+    const visiblePlayers = getVisiblePlayers(gameState);
+    status.players.online = visiblePlayers.length;
+    status.players.list = visiblePlayers;
     status.players.source = 'smapi-state-bridge';
     status.players.refreshedAt = gameState.updatedAt || null;
     status.day = formatGameDay(gameState) || status.day;

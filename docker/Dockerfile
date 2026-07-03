@@ -21,7 +21,7 @@ LABEL maintainer="truemanlive" \
 RUN dpkg --add-architecture i386 && \
     apt-get update && apt-get install -y --no-install-recommends \
     # Core tools
-    wget curl unzip ca-certificates \
+    wget curl unzip ca-certificates gnupg \
     # SteamCMD dependencies
     lib32gcc-s1 libcurl3-gnutls:i386 \
     # Game rendering
@@ -33,10 +33,18 @@ RUN dpkg --add-architecture i386 && \
     # Runtime
     dotnet-runtime-6.0 \
     # Utilities
-    procps net-tools \
-    # Node.js for web panel
-    nodejs npm \
+    procps net-tools netcat-openbsd \
     && \
+    # Install a current Node.js runtime for the web panel. Ubuntu 22.04's
+    # default nodejs package is too old for the panel runtime and lockfile.
+    install -d -m 0755 /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+        gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    chmod a+r /etc/apt/keyrings/nodesource.gpg && \
+    NODE_ARCH="$(dpkg --print-architecture)" && \
+    echo "deb [arch=${NODE_ARCH} signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > \
+        /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y --no-install-recommends nodejs && \
     # Clean up apt cache in same layer to reduce image size
     # 在同一层清理 apt 缓存以减小镜像大小
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* \
@@ -103,7 +111,7 @@ COPY --chown=steam:steam config/10-monitor.conf /etc/X11/xorg.conf.d/10-monitor.
 # Copy web panel and install dependencies
 # 复制 Web 管理面板并安装依赖
 COPY --chown=steam:steam web-panel/ /home/steam/web-panel/
-RUN cd /home/steam/web-panel && npm ci --only=production && \
+RUN cd /home/steam/web-panel && npm ci --omit=dev && \
     chown -R steam:steam /home/steam/web-panel
 
 # Run as root to allow permission fixes on startup

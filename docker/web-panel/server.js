@@ -45,6 +45,17 @@ module.exports = config;
 const app = express();
 const server = http.createServer(app);
 
+server.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.error(`[Web Panel] Port ${PORT} is already in use. Stop the conflicting process or set PANEL_PORT to another port.`);
+  } else if (err && err.code === 'EACCES') {
+    console.error(`[Web Panel] No permission to listen on port ${PORT}. Use a higher port or adjust container permissions.`);
+  } else {
+    console.error('[Web Panel] HTTP server error:', err);
+  }
+  process.exit(1);
+});
+
 // Middleware
 app.use(express.json({ limit: '60mb' }));
 app.use(express.urlencoded({ extended: false, limit: '60mb' }));

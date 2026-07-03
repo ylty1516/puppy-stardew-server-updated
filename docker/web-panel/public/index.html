@@ -483,7 +483,7 @@
           <div class="card">
             <div class="section-header">
               <h3 data-i18n="saves.title">Save Files</h3>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div class="section-actions">
                 <button class="btn btn-primary btn-sm" type="button" onclick="document.getElementById('saveFileInput').click()">
                   <svg class="icon"><use href="#icon-package"></use></svg>
                   <span data-i18n="saves.upload">Upload Save</span>
@@ -495,7 +495,7 @@
               </div>
             </div>
             <div class="save-upload-panel">
-              <input type="file" id="saveFileInput" accept=".zip" style="display:none" onchange="handleSaveUpload(this)">
+              <input type="file" id="saveFileInput" class="hidden-file" accept=".zip" onchange="handleSaveUpload(this)">
               <label class="save-upload-option">
                 <input type="checkbox" id="saveUploadSetDefault" checked>
                 <span data-i18n="saves.setDefaultAfterUpload">Set imported save as default</span>
@@ -520,7 +520,7 @@
 
         <section id="page-config" class="page">
           <div id="configContainer"></div>
-          <div class="card" style="margin-top:16px;">
+          <div class="card card-spaced">
             <div class="section-header">
               <h3 data-i18n="config.password">Change Panel Password</h3>
             </div>
@@ -553,7 +553,7 @@
       <h3 id="restartModalTitle">Restart Required</h3>
       <p id="restartModalMessage">Configuration has been saved. Restart the server for changes to take effect.</p>
       <div class="modal-actions">
-        <button class="btn btn-sm" id="restartLaterBtn" type="button" onclick="closeRestartModal()" style="background:var(--bg-tertiary);color:var(--text-primary)">Later</button>
+        <button class="btn btn-sm btn-muted" id="restartLaterBtn" type="button" onclick="closeRestartModal()">Later</button>
         <button class="btn btn-sm btn-warning" id="restartNowBtn" type="button" onclick="confirmRestart()">Restart Now</button>
       </div>
     </div>

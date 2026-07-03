@@ -5,6 +5,7 @@
 const fs = require('fs');
 const { execSync } = require('child_process');
 const config = require('../server');
+const { getVisiblePlayers, readFreshGameState } = require('./game-state');
 
 // Player history (in-memory)
 const playerHistory = [];
@@ -14,42 +15,18 @@ const MAX_PLAYER_HISTORY = 288; // 24h at 5-min intervals
 let connectedPlayers = [];
 let lastLogParse = 0;
 
-function readFreshGameState(maxAgeSeconds = 20) {
-  if (!config.GAME_STATE_FILE || !fs.existsSync(config.GAME_STATE_FILE)) {
-    return null;
-  }
-
-  try {
-    const data = JSON.parse(fs.readFileSync(config.GAME_STATE_FILE, 'utf-8'));
-    const updatedAtMs = Date.parse(data.updatedAt || '');
-    if (!Number.isFinite(updatedAtMs)) {
-      return null;
-    }
-
-    const ageSeconds = Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000));
-    if (ageSeconds > maxAgeSeconds) {
-      return null;
-    }
-
-    return { ...data, ageSeconds };
-  } catch (error) {
-    return null;
-  }
-}
-
 function getPlayersFromGameState(gameState) {
+  const visiblePlayers = getVisiblePlayers(gameState);
   if (!gameState || !Array.isArray(gameState.onlinePlayers)) {
     return null;
   }
 
-  return gameState.onlinePlayers
-    .filter(player => player && player.isHost !== true)
-    .map(player => ({
-      id: player.id || player.name || 'unknown',
-      name: player.name || normalizePlayerLabel(player.id || ''),
-      location: player.location || '',
-      inBed: player.inBed === true,
-    }));
+  return visiblePlayers.map(player => ({
+    id: player.id || player.name || 'unknown',
+    name: player.name || normalizePlayerLabel(player.id || ''),
+    location: player.location || '',
+    inBed: player.inBed === true,
+  }));
 }
 
 function normalizePlayerLabel(value) {
