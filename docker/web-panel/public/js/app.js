@@ -77,7 +77,7 @@ const translations = {
     'dash.gameDay': '游戏日期', 'dash.backups': '备份数量', 'dash.mods': '已加载Mod',
     'dash.resources': '系统资源', 'dash.quickActions': '快捷操作',
     'dash.details': '服务器详情', 'dash.joinIp': '联机 IP', 'dash.joinPort': '联机端口',
-    'dash.joinable': '可加入状态', 'dash.connectionFreshness': '人数刷新', 'dash.modRuntime': 'Mod 生效状态', 'dash.autoPause': '自动暂停', 'dash.timePause': '游戏时间状态', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
+    'dash.joinable': '可加入状态', 'dash.connectionFreshness': '人数刷新', 'dash.modRuntime': 'Mod 生效状态', 'dash.eventProxy': '玩家事件代理', 'dash.autoPause': '自动暂停', 'dash.timePause': '游戏时间状态', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
     'dash.metricsPort': '监控端口', 'dash.events': '自动化事件',
     'dash.passout': '昏倒处理', 'dash.readyCheck': '准备检查', 'dash.offlineEvents': '离线恢复',
     'dash.joinHint': '游戏内通常只需要输入 IP 地址。', 'dash.portHint': '星露谷联机输入框里不要追加端口号。',
@@ -104,6 +104,15 @@ const translations = {
     'mod.reason.unknown': '无法确认 Mod 状态。',
     'mod.age': '更新于 {seconds} 秒前', 'mod.lastAutomation': '最近自动化 {type}（{result}）',
     'mod.success': '成功', 'mod.failed': '失败', 'mod.hostHidden': '房主已隐藏',
+    'eventProxy.state.idle': '等待玩家', 'eventProxy.state.disabled': '已关闭',
+    'eventProxy.state.blocked': '被阻止', 'eventProxy.state.warping': '代理进图',
+    'eventProxy.state.checking': '检查事件', 'eventProxy.state.event_active': '事件进行中',
+    'eventProxy.state.complete': '已完成', 'eventProxy.state.failed': '失败',
+    'eventProxy.note.disabled': '事件代理未启用，玩家进图不会触发房主代理检查。',
+    'eventProxy.note.idle': '玩家进入大型 Mod 事件地点时，隐藏房主会自动代入同地点检查房主侧事件。',
+    'eventProxy.note.active': '{player} 正在 {location} 触发代理检查，已运行 {seconds} 秒。',
+    'eventProxy.note.last': '上次：{result}，{player} / {location}，{message}',
+    'eventProxy.note.none': '还没有代理记录。',
     'autoPause.state.paused': '已自动暂停', 'autoPause.state.waiting': '等待空服',
     'autoPause.state.online': '有人在线', 'autoPause.state.disabled': '已关闭',
     'autoPause.state.manual_pause': '手动暂停中', 'autoPause.state.not_ready': '未就绪',
@@ -128,7 +137,7 @@ const translations = {
     'dash.enableAutoPause': '开启自动暂停', 'dash.disableAutoPause': '关闭自动暂停',
     'dash.expansionInit': '大型Mod初始化', 'dash.hideHost': '重新隐藏房主',
     'dash.pauseHint': '手动暂停会冻结游戏内时间，所有在线玩家都会停在当前时间，直到你恢复。',
-    'dash.expansionHint': '大型内容 Mod 初始剧情不触发时，先开启大型Mod初始化，用 VNC 让服务器房主完成一次前置/介绍剧情，再重新隐藏房主。',
+    'dash.expansionHint': '大型内容 Mod 事件由玩家事件代理自动检查；只有诊断明确显示菜单或事件卡住时，才需要手动查看房主画面。',
     'dash.pauseActive': '手动暂停已开启，游戏内时间会保持冻结。',
     'dash.autoPauseActive': '自动空服暂停已开启，无人在线超过延迟后会冻结游戏时间。',
     'dash.autoPauseInactive': '自动空服暂停已关闭，无人在线时游戏时间也会继续流动。',
@@ -313,7 +322,7 @@ const translations = {
     'toast.autoPauseOn': '已开启自动空服暂停。',
     'toast.autoPauseOff': '已关闭自动空服暂停，若此前由自动暂停冻结会自动恢复。',
     'toast.autoPauseFail': '切换自动暂停失败',
-    'toast.expansionInitOk': '已显示服务器房主并关闭自动跳过剧情。请用 VNC 完成大型 Mod 初始剧情。',
+    'toast.expansionInitOk': '已显示服务器房主并关闭自动跳过剧情。正常情况下优先使用玩家事件代理；此按钮只用于手动排障。',
     'toast.expansionInitFail': '大型Mod初始化启动失败',
     'toast.hideHostOk': '已发送重新隐藏房主命令。',
     'toast.hideHostFail': '重新隐藏房主失败',
@@ -334,7 +343,7 @@ const translations = {
     'dash.gameDay': 'Game Day', 'dash.backups': 'Backups', 'dash.mods': 'Loaded Mods',
     'dash.resources': 'System Resources', 'dash.quickActions': 'Quick Actions',
     'dash.details': 'Server Details', 'dash.joinIp': 'Join IP', 'dash.joinPort': 'Join Port',
-    'dash.joinable': 'Joinable', 'dash.connectionFreshness': 'Player Refresh', 'dash.modRuntime': 'Mod Runtime', 'dash.autoPause': 'Auto Pause', 'dash.timePause': 'Time State', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
+    'dash.joinable': 'Joinable', 'dash.connectionFreshness': 'Player Refresh', 'dash.modRuntime': 'Mod Runtime', 'dash.eventProxy': 'Player Event Proxy', 'dash.autoPause': 'Auto Pause', 'dash.timePause': 'Time State', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
     'dash.metricsPort': 'Metrics Port', 'dash.events': 'Automation Events',
     'dash.passout': 'Passout', 'dash.readyCheck': 'Ready Check', 'dash.offlineEvents': 'Offline Recovery',
     'dash.joinHint': 'In-game usually only needs the IP address.', 'dash.portHint': 'Do not append the port in Stardew\'s join field.',
@@ -361,6 +370,15 @@ const translations = {
     'mod.reason.unknown': 'The mod runtime state cannot be confirmed.',
     'mod.age': 'updated {seconds}s ago', 'mod.lastAutomation': 'last automation {type} ({result})',
     'mod.success': 'success', 'mod.failed': 'failed', 'mod.hostHidden': 'host hidden',
+    'eventProxy.state.idle': 'Waiting', 'eventProxy.state.disabled': 'Disabled',
+    'eventProxy.state.blocked': 'Blocked', 'eventProxy.state.warping': 'Proxy warp',
+    'eventProxy.state.checking': 'Checking', 'eventProxy.state.event_active': 'Event active',
+    'eventProxy.state.complete': 'Complete', 'eventProxy.state.failed': 'Failed',
+    'eventProxy.note.disabled': 'Event proxy is disabled, so player warps will not proxy-check host events.',
+    'eventProxy.note.idle': 'When a player enters a large-mod event location, the hidden host will proxy-check host-side events.',
+    'eventProxy.note.active': '{player} is proxy-checking {location}; active for {seconds}s.',
+    'eventProxy.note.last': 'Last: {result}, {player} / {location}, {message}',
+    'eventProxy.note.none': 'No proxy attempt yet.',
     'autoPause.state.paused': 'Auto paused', 'autoPause.state.waiting': 'Waiting empty',
     'autoPause.state.online': 'Players online', 'autoPause.state.disabled': 'Disabled',
     'autoPause.state.manual_pause': 'Manual pause', 'autoPause.state.not_ready': 'Not ready',
@@ -385,7 +403,7 @@ const translations = {
     'dash.enableAutoPause': 'Enable Auto Pause', 'dash.disableAutoPause': 'Disable Auto Pause',
     'dash.expansionInit': 'Large Mod Init', 'dash.hideHost': 'Hide Host',
     'dash.pauseHint': 'Manual pause freezes in-game time for all connected players until you resume it.',
-    'dash.expansionHint': 'If a large content mod intro does not trigger, start large mod init, use VNC to complete the host-side intro event, then hide the host again.',
+    'dash.expansionHint': 'Large content mod events are checked through the player event proxy. Only inspect the host screen when diagnostics report a stuck menu or event.',
     'dash.pauseActive': 'Manual pause is enabled. In-game time will stay frozen.',
     'dash.autoPauseActive': 'Automatic empty-server pause is enabled. Time freezes after the empty delay.',
     'dash.autoPauseInactive': 'Automatic empty-server pause is disabled. Time keeps moving when empty.',
@@ -570,7 +588,7 @@ const translations = {
     'toast.autoPauseOn': 'Automatic empty-server pause enabled.',
     'toast.autoPauseOff': 'Automatic empty-server pause disabled. An auto-held pause will be released.',
     'toast.autoPauseFail': 'Failed to toggle auto pause',
-    'toast.expansionInitOk': 'Host is visible and automatic event skipping is disabled. Use VNC to complete the large mod intro.',
+    'toast.expansionInitOk': 'Host is visible and automatic event skipping is disabled. Prefer the player event proxy for normal large mod events; use this only for manual troubleshooting.',
     'toast.expansionInitFail': 'Failed to start large mod initialization',
     'toast.hideHostOk': 'Hide-host command sent.',
     'toast.hideHostFail': 'Failed to hide host',
@@ -977,6 +995,7 @@ function updateDashboardUI(data) {
   updateJoinabilityUI(data.joinability || { joinable: false, reason: 'unknown' });
   updateConnectionFreshnessUI(data.connection || {});
   updateModRuntimeUI(data.modRuntime || { active: false, state: 'unknown' });
+  updateEventProxyUI(data.eventProxy || { enabled: false, state: 'unknown' });
   updateAutoPauseUI(data.autoPause || { enabled: false, state: 'unknown' });
   updateTimePauseUI(data.timePause || { paused: data.paused === true, source: data.paused ? 'inferred' : 'running' });
   setText('detail-local-ips', network.localIps && network.localIps.length ? network.localIps.join(', ') : '--');
@@ -1056,6 +1075,53 @@ function updateModRuntimeUI(modRuntime) {
     }
     note.textContent = parts.filter(Boolean).join(' | ');
   }
+}
+
+function formatEventProxyState(state) {
+  const key = `eventProxy.state.${state || 'unknown'}`;
+  const label = t(key);
+  return label === key ? (state || t('mod.state.unknown')) : label;
+}
+
+function updateEventProxyUI(eventProxy) {
+  const value = document.getElementById('detail-event-proxy');
+  const note = document.getElementById('detail-event-proxy-note');
+  const enabled = eventProxy && eventProxy.enabled === true;
+  const active = eventProxy && eventProxy.active === true;
+  const state = enabled ? (eventProxy.state || 'idle') : 'disabled';
+
+  if (value) {
+    value.textContent = formatEventProxyState(state);
+    setTone(value, !enabled ? 'warn' : active || state === 'complete' || state === 'idle' ? 'ok' : state === 'failed' ? 'error' : 'warn');
+  }
+
+  if (!note) return;
+
+  if (!enabled) {
+    note.textContent = t('eventProxy.note.disabled');
+    return;
+  }
+
+  if (active) {
+    note.textContent = tf('eventProxy.note.active', {
+      player: eventProxy.playerName || '--',
+      location: eventProxy.location || '--',
+      seconds: String(Math.floor(eventProxy.activeSeconds || 0)),
+    });
+    return;
+  }
+
+  if (eventProxy.last) {
+    note.textContent = tf('eventProxy.note.last', {
+      result: eventProxy.last.success ? t('mod.success') : t('mod.failed'),
+      player: eventProxy.last.playerName || '--',
+      location: eventProxy.last.location || '--',
+      message: eventProxy.last.message || eventProxy.reason || '--',
+    });
+    return;
+  }
+
+  note.textContent = state === 'idle' ? t('eventProxy.note.idle') : t('eventProxy.note.none');
 }
 
 function updateAutoPauseUI(autoPause) {

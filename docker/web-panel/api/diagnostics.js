@@ -169,10 +169,14 @@ function buildLargeContentModCheck(status) {
 
   const gameState = status.gameState || {};
   const expansion = gameState.expansionModCompatibility || {};
+  const eventProxy = gameState.eventProxy || {};
   const hostHidden = status.modRuntime?.hostHidden === true || gameState.hostHidden === true;
   const manualHostVisible = expansion.manualHostVisible === true;
   const autoSkipEnabled = expansion.autoSkipSkippableEvents === true;
   const hasExpansionBridge = typeof expansion.autoSkipSkippableEvents === 'boolean';
+  const hasEventProxyBridge = typeof eventProxy.enabled === 'boolean';
+  const eventProxyEnabled = eventProxy.enabled === true;
+  const eventProxyLast = eventProxy.last && typeof eventProxy.last === 'object' ? eventProxy.last : null;
   const activeMenu = typeof gameState.activeMenu === 'string' ? gameState.activeMenu : '';
   const currentEvent = gameState.currentEvent && typeof gameState.currentEvent === 'object'
     ? gameState.currentEvent
@@ -195,7 +199,7 @@ function buildLargeContentModCheck(status) {
       label: 'Large content mod event compatibility',
       status: 'warn',
       detail: `Detected ${modNames}, but the live SMAPI state bridge is not fresh enough to confirm host event state.`,
-      action: 'Start the server and wait for AutoHideHost v1.3.1+ to write a fresh game-state.json, then refresh diagnostics.',
+      action: 'Start the server and wait for AutoHideHost v1.4.0+ to write a fresh game-state.json, then refresh diagnostics.',
     };
   }
 
@@ -205,7 +209,7 @@ function buildLargeContentModCheck(status) {
       label: 'Large content mod event compatibility',
       status: 'error',
       detail: `Detected ${modNames}, but AutoHideHost did not report the large-mod compatibility state.`,
-      action: 'Update AutoHideHost to v1.3.1 or newer, rebuild/restart the container, then run diagnostics again.',
+      action: 'Update AutoHideHost to v1.4.0 or newer, rebuild/restart the container, then run diagnostics again.',
     };
   }
 
@@ -219,13 +223,43 @@ function buildLargeContentModCheck(status) {
     };
   }
 
+  if (!hasEventProxyBridge) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'error',
+      detail: `Detected ${modNames}, but AutoHideHost did not report player event proxy state.`,
+      action: 'Update AutoHideHost to v1.4.0 or newer and restart the container so farmhand warps can proxy-check host-side events.',
+    };
+  }
+
+  if (!eventProxyEnabled) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}. Player event proxy is disabled, so hidden-host intro/unlock checks will not run when players enter mod locations.`,
+      action: 'Set EnableEventProxyTrigger=true in AutoHideHost config and restart the game container.',
+    };
+  }
+
+  if (eventProxy.active) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'ok',
+      detail: `Detected ${modNames}. Player event proxy is active for ${eventProxy.playerName || 'a player'} at ${eventProxy.location || 'unknown location'} (${eventProxy.state || 'checking'}).`,
+      action: 'Wait for the proxy to finish. If it later fails, this diagnostic will show the exact blocker or timeout reason.',
+    };
+  }
+
   if (currentEvent) {
     return {
       id: 'large_content_mod_events',
       label: 'Large content mod event compatibility',
       status: 'warn',
       detail: `Detected ${modNames}. The host is currently in event ${currentEvent.id || 'unknown'}${currentEvent.skippable ? ' (skippable)' : ''}.`,
-      action: 'Use VNC to complete the host-side event. Do not auto-skip large mod intro or unlock events unless you are sure it is safe.',
+      action: 'Wait for AutoHideHost to finish or skip the proxy event. If it stays longer than the proxy timeout, check the last proxy failure reason and SMAPI log.',
     };
   }
 
@@ -235,7 +269,27 @@ function buildLargeContentModCheck(status) {
       label: 'Large content mod event compatibility',
       status: 'warn',
       detail: `Detected ${modNames}. The host has an active menu: ${activeMenu}.`,
-      action: 'Use VNC to close/advance the host menu if players cannot trigger the expected large mod event.',
+      action: 'Close the blocking menu through the panel/SMAPI if possible, then have a player re-enter the mod event location. If it persists, check SMAPI logs for the menu source.',
+    };
+  }
+
+  if (eventProxyLast && eventProxyLast.success === false) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}. Last proxy attempt failed for ${eventProxyLast.playerName || 'unknown player'} at ${eventProxyLast.location || 'unknown location'}: ${eventProxyLast.message || 'unknown reason'}.`,
+      action: 'Fix the reported blocker, then let any real player leave and re-enter the target location to trigger a fresh proxy check.',
+    };
+  }
+
+  if (eventProxyLast && eventProxyLast.success === true && /^no_host_event_for_location/.test(eventProxyLast.message || '')) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}. Last proxy reached ${eventProxyLast.location || 'unknown location'}, but the game did not find a host-side event to start there.`,
+      action: 'Check the mod event requirements such as day, time, weather, mail/global flags, NPC friendship, exact entrance tile, and whether the host or farmhand has already seen the required prerequisite event.',
     };
   }
 
@@ -243,9 +297,11 @@ function buildLargeContentModCheck(status) {
     return {
       id: 'large_content_mod_events',
       label: 'Large content mod event compatibility',
-      status: 'warn',
-      detail: `Detected ${modNames}. The host is hidden, so host-only intro/unlock events may be waiting on the server host.`,
-      action: 'Click Large Mod Init, use VNC to complete the host-side intro/unlock once, then click Hide Host.',
+      status: 'ok',
+      detail: `Detected ${modNames}. The host is hidden and player event proxy is enabled; players entering event locations will automatically proxy-check host-side intro/unlock events.`,
+      action: eventProxyLast
+        ? `Last proxy result: ${eventProxyLast.success ? 'success' : 'failed'} at ${eventProxyLast.location || 'unknown location'} (${eventProxyLast.message || 'no message'}).`
+        : 'Have a real player enter the mod event location once; this page will then report the proxy result.',
     };
   }
 
@@ -253,8 +309,8 @@ function buildLargeContentModCheck(status) {
     id: 'large_content_mod_events',
     label: 'Large content mod event compatibility',
     status: 'ok',
-    detail: `Detected ${modNames}. Required dependencies are installed and AutoHideHost is not auto-skipping events.`,
-    action: manualHostVisible ? 'After finishing host-side initialization through VNC, click Hide Host.' : '',
+    detail: `Detected ${modNames}. Required dependencies are installed, AutoHideHost is not auto-skipping events, and player event proxy is available.`,
+    action: manualHostVisible ? 'The host is manually visible for troubleshooting. Hide the host again when finished so proxy mode can take over.' : '',
   };
 }
 

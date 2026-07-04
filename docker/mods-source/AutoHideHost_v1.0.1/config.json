@@ -24,5 +24,12 @@
   "HostCommandPollTicks": 30,
   "EnableFestivalProxyTrigger": true,
   "FestivalProxyCooldownSeconds": 20,
+  "EnableEventProxyTrigger": true,
+  "EventProxyCooldownSeconds": 25,
+  "EventProxyNoEventWaitSeconds": 3,
+  "EventProxySkipEventDelaySeconds": 4,
+  "EventProxyEventTimeoutSeconds": 90,
+  "EventProxyUseOffMapPosition": true,
+  "EventProxyIgnoredLocations": "",
   "AutoSkipSkippableEvents": false
 }

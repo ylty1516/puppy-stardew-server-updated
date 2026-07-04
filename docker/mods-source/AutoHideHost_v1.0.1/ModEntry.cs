@@ -65,6 +65,26 @@ namespace AutoHideHost
         private string lastFestivalProxyBy = "";
         private string lastFestivalProxyFestivalId = "";
         private DateTime? lastFestivalProxyAt = null;
+        private bool eventProxyActive = false;
+        private bool eventProxyEventStarted = false;
+        private DateTime? eventProxyStartedAt = null;
+        private DateTime? eventProxyEventStartedAt = null;
+        private string eventProxyState = "idle";
+        private string eventProxyReason = "waiting_for_player";
+        private string eventProxyPlayerName = "";
+        private long eventProxyPlayerId = 0;
+        private string eventProxyLocation = "";
+        private int eventProxyTileX = 0;
+        private int eventProxyTileY = 0;
+        private string eventProxyEventId = "";
+        private string lastEventProxyKey = "";
+        private string lastEventProxyBy = "";
+        private string lastEventProxyLocation = "";
+        private string lastEventProxyEventId = "";
+        private bool lastEventProxySuccess = false;
+        private string lastEventProxyMessage = "";
+        private DateTime? lastEventProxyAt = null;
+        private readonly Dictionary<string, DateTime> eventProxyCooldowns = new Dictionary<string, DateTime>();
         private bool manualHostVisible = false;
         private string lastHostCommandId = "";
         private string lastHostCommandName = "";
@@ -116,6 +136,7 @@ namespace AutoHideHost
             singleFarmhandMenuPausePlayerId = 0;
             singleFarmhandMenuPausePlayerName = "";
             singleFarmhandMenuPauseMenuType = "";
+            ResetEventProxyRuntime("save_loaded");
             this.Monitor.Log("存档已加载，3秒后检查 Always On Server 状态", LogLevel.Info);
 
             if (Config.AutoHideOnLoad)
@@ -135,6 +156,7 @@ namespace AutoHideHost
             handledReadyCheck = false;  // v1.4.0: 重置ReadyCheck标志
             clientBackpackStates.Clear();
             ResetSingleFarmhandMenuPauseState("waiting", "new_day");
+            ResetEventProxyRuntime("new_day");
 
             // v1.2.0: 重置事件跳过标志
             lastSkippedEventId = null;
@@ -348,6 +370,11 @@ namespace AutoHideHost
             if (e.Ticks % Math.Max(30, Config.GameStateWriteTicks) == 0)
             {
                 WriteGameStateBridge();
+            }
+
+            if (e.Ticks % 15 == 0)
+            {
+                ProcessEventProxy();
             }
 
             // v1.1.8: 处理延迟重新隐藏
@@ -1289,10 +1316,44 @@ namespace AutoHideHost
                     $"\"timeoutSeconds\":{Math.Max(3, Config.SingleFarmhandMenuPauseTimeoutSeconds)}," +
                     $"\"clientModId\":{JsonString(ClientPauseReporterModId)}" +
                     "}";
+                double eventProxyActiveSeconds = eventProxyStartedAt.HasValue
+                    ? Math.Max(0, (DateTime.UtcNow - eventProxyStartedAt.Value).TotalSeconds)
+                    : 0;
+                string lastEventProxyJson = lastEventProxyAt.HasValue
+                    ? "{" +
+                        $"\"playerName\":{JsonString(lastEventProxyBy)}," +
+                        $"\"location\":{JsonString(lastEventProxyLocation)}," +
+                        $"\"eventId\":{JsonString(lastEventProxyEventId)}," +
+                        $"\"success\":{JsonBool(lastEventProxySuccess)}," +
+                        $"\"message\":{JsonString(lastEventProxyMessage)}," +
+                        $"\"at\":{JsonString(lastEventProxyAt.Value.ToString("O"))}" +
+                        "}"
+                    : "null";
+                string eventProxyJson = "{" +
+                    $"\"enabled\":{JsonBool(Config.EnableEventProxyTrigger)}," +
+                    $"\"active\":{JsonBool(eventProxyActive)}," +
+                    $"\"state\":{JsonString(Config.EnableEventProxyTrigger ? eventProxyState : "disabled")}," +
+                    $"\"reason\":{JsonString(Config.EnableEventProxyTrigger ? eventProxyReason : "config_disabled")}," +
+                    $"\"playerName\":{JsonString(eventProxyPlayerName)}," +
+                    $"\"playerId\":{JsonString(eventProxyPlayerId == 0 ? "" : eventProxyPlayerId.ToString())}," +
+                    $"\"location\":{JsonString(eventProxyLocation)}," +
+                    $"\"tileX\":{eventProxyTileX}," +
+                    $"\"tileY\":{eventProxyTileY}," +
+                    $"\"eventId\":{JsonString(eventProxyEventId)}," +
+                    $"\"activeSeconds\":{Math.Floor(eventProxyActiveSeconds)}," +
+                    $"\"cooldownSeconds\":{Math.Max(5, Config.EventProxyCooldownSeconds)}," +
+                    $"\"noEventWaitSeconds\":{Math.Max(1, Config.EventProxyNoEventWaitSeconds)}," +
+                    $"\"skipEventDelaySeconds\":{Math.Max(1, Config.EventProxySkipEventDelaySeconds)}," +
+                    $"\"eventTimeoutSeconds\":{Math.Max(10, Config.EventProxyEventTimeoutSeconds)}," +
+                    $"\"offMapPosition\":{JsonBool(Config.EventProxyUseOffMapPosition)}," +
+                    $"\"ignoredLocations\":{JsonString(Config.EventProxyIgnoredLocations ?? "")}," +
+                    $"\"last\":{lastEventProxyJson}" +
+                    "}";
                 string expansionCompatibilityJson = "{" +
                     $"\"enabled\":{JsonBool(!Config.AutoSkipSkippableEvents)}," +
                     $"\"autoSkipSkippableEvents\":{JsonBool(Config.AutoSkipSkippableEvents)}," +
                     $"\"manualHostVisible\":{JsonBool(manualHostVisible)}," +
+                    $"\"eventProxyEnabled\":{JsonBool(Config.EnableEventProxyTrigger)}," +
                     $"\"recommendation\":{JsonString(Config.AutoSkipSkippableEvents ? "disable_auto_skip_for_large_content_mods" : "compatible")}" +
                     "}";
                 string hostCommandJson = "{" +
@@ -1332,6 +1393,7 @@ namespace AutoHideHost
                 json.Append($"  \"sleepInProgress\": {JsonBool(isSleepInProgress)},\n");
                 json.Append($"  \"autoPause\": {autoPauseJson},\n");
                 json.Append($"  \"singleFarmhandMenuPause\": {singleFarmhandMenuPauseJson},\n");
+                json.Append($"  \"eventProxy\": {eventProxyJson},\n");
                 json.Append($"  \"expansionModCompatibility\": {expansionCompatibilityJson},\n");
                 json.Append($"  \"hostCommand\": {hostCommandJson},\n");
                 json.Append($"  \"onlinePlayers\": [{playersJson}],\n");
@@ -2279,6 +2341,348 @@ namespace AutoHideHost
             this.Helper.Events.GameLoop.UpdateTicked += StartFestivalAfterWarp;
         }
 
+        private void ResetEventProxyRuntime(string reason)
+        {
+            eventProxyActive = false;
+            eventProxyEventStarted = false;
+            eventProxyStartedAt = null;
+            eventProxyEventStartedAt = null;
+            eventProxyState = Config.EnableEventProxyTrigger ? "idle" : "disabled";
+            eventProxyReason = reason ?? "";
+            eventProxyPlayerName = "";
+            eventProxyPlayerId = 0;
+            eventProxyLocation = "";
+            eventProxyTileX = 0;
+            eventProxyTileY = 0;
+            eventProxyEventId = "";
+        }
+
+        private void SetLastEventProxy(bool success, string state, string message)
+        {
+            lastEventProxyBy = eventProxyPlayerName;
+            lastEventProxyLocation = eventProxyLocation;
+            lastEventProxyEventId = eventProxyEventId;
+            lastEventProxySuccess = success;
+            lastEventProxyMessage = message ?? "";
+            lastEventProxyAt = DateTime.UtcNow;
+            eventProxyState = state ?? (success ? "complete" : "failed");
+            eventProxyReason = message ?? "";
+        }
+
+        private bool IsEventProxyIgnoredLocation(string locationName)
+        {
+            if (string.IsNullOrWhiteSpace(locationName))
+                return true;
+
+            string raw = Config.EventProxyIgnoredLocations ?? "";
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            return raw
+                .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(item => item.Trim())
+                .Any(item => item.Equals(locationName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool IsFestivalProxyTarget(GameLocation location)
+        {
+            if (!Config.EnableFestivalProxyTrigger || !Context.IsWorldReady || location == null)
+                return false;
+
+            if (!TryGetTodaysFestivalInfo(out string festivalId, out string festivalLocation, out int startTime, out int endTime))
+                return false;
+
+            return Game1.timeOfDay >= startTime
+                && Game1.timeOfDay <= endTime
+                && IsFestivalLocationMatch(location, festivalLocation, festivalId);
+        }
+
+        private bool IsEventProxySafe(out string reason)
+        {
+            reason = "";
+
+            if (!Context.IsWorldReady || Game1.player == null)
+            {
+                reason = "world_not_ready";
+                return false;
+            }
+
+            if (!Game1.IsServer || Game1.server == null)
+            {
+                reason = "multiplayer_not_ready";
+                return false;
+            }
+
+            if (Game1.game1 != null && Game1.game1.IsSaving)
+            {
+                reason = "saving";
+                return false;
+            }
+
+            if (manualHostVisible)
+            {
+                reason = "manual_host_visible";
+                return false;
+            }
+
+            if (isSleepInProgress || hasTriggeredSleep || needToSleep || Game1.saveOnNewDay)
+            {
+                reason = "sleep_or_day_transition";
+                return false;
+            }
+
+            if (Game1.CurrentEvent != null)
+            {
+                reason = "event_active";
+                return false;
+            }
+
+            if (ReadManualPauseFlag())
+            {
+                reason = "manual_pause_enabled";
+                return false;
+            }
+
+            if (Game1.activeClickableMenu != null)
+            {
+                reason = $"menu_open:{Game1.activeClickableMenu.GetType().Name}";
+                return false;
+            }
+
+            reason = "safe";
+            return true;
+        }
+
+        private void TryTriggerEventProxy(WarpedEventArgs e)
+        {
+            if (!Config.EnableEventProxyTrigger || !Context.IsWorldReady || e == null || e.Player == null || e.IsLocalPlayer)
+                return;
+
+            if (Game1.player == null || e.Player.UniqueMultiplayerID == Game1.player.UniqueMultiplayerID)
+                return;
+
+            string locationName = e.NewLocation?.Name ?? "";
+            if (IsEventProxyIgnoredLocation(locationName))
+                return;
+
+            if (IsFestivalProxyTarget(e.NewLocation))
+                return;
+
+            if (eventProxyActive)
+            {
+                LogDebug($"[EventProxy] Busy with {eventProxyLocation}; ignored {e.Player?.Name}:{locationName}");
+                return;
+            }
+
+            if (!IsEventProxySafe(out string unsafeReason))
+            {
+                eventProxyState = "blocked";
+                eventProxyReason = unsafeReason;
+                lastEventProxyBy = e.Player.Name ?? e.Player.UniqueMultiplayerID.ToString();
+                lastEventProxyLocation = locationName;
+                lastEventProxySuccess = false;
+                lastEventProxyMessage = unsafeReason;
+                lastEventProxyAt = DateTime.UtcNow;
+                return;
+            }
+
+            string proxyKey = $"{Game1.year}:{Game1.currentSeason}:{Game1.dayOfMonth}:{e.Player.UniqueMultiplayerID}:{locationName}";
+            int cooldownSeconds = Math.Max(5, Config.EventProxyCooldownSeconds);
+            if (eventProxyCooldowns.TryGetValue(proxyKey, out DateTime lastAt)
+                && (DateTime.UtcNow - lastAt).TotalSeconds < cooldownSeconds)
+            {
+                LogDebug($"[EventProxy] Cooldown active for {proxyKey}");
+                return;
+            }
+
+            eventProxyCooldowns[proxyKey] = DateTime.UtcNow;
+            foreach (string oldKey in eventProxyCooldowns
+                .Where(pair => (DateTime.UtcNow - pair.Value).TotalMinutes > 30)
+                .Select(pair => pair.Key)
+                .ToList())
+            {
+                eventProxyCooldowns.Remove(oldKey);
+            }
+
+            Point tile = e.Player.TilePoint;
+            int x = Math.Max(0, tile.X);
+            int y = Math.Max(0, tile.Y);
+            if (x <= 0 && y <= 0)
+            {
+                Utility.getDefaultWarpLocation(locationName, ref x, ref y);
+            }
+
+            if (autoPauseApplied)
+                ResumeAutoPause("event_proxy_player_activity", force: true);
+            if (singleFarmhandMenuPauseApplied)
+                ResumeSingleFarmhandMenuPause("event_proxy_player_activity");
+            if (Game1.paused)
+                Game1.paused = false;
+
+            eventProxyActive = true;
+            eventProxyEventStarted = false;
+            eventProxyStartedAt = DateTime.UtcNow;
+            eventProxyEventStartedAt = null;
+            eventProxyState = "warping";
+            eventProxyReason = "player_entered_location";
+            eventProxyPlayerName = e.Player.Name ?? e.Player.UniqueMultiplayerID.ToString();
+            eventProxyPlayerId = e.Player.UniqueMultiplayerID;
+            eventProxyLocation = locationName;
+            eventProxyTileX = x;
+            eventProxyTileY = y;
+            eventProxyEventId = "";
+            lastEventProxyKey = proxyKey;
+
+            this.Monitor.Log($"[EventProxy] Player {eventProxyPlayerName} entered {eventProxyLocation}; host will proxy-check events at ({x}, {y}).", LogLevel.Info);
+            SetLastAutomation("eventProxy", true, $"scheduled:{eventProxyLocation}:{eventProxyPlayerName}");
+
+            Game1.warpFarmer(locationName, x, y, false);
+        }
+
+        private void ProcessEventProxy()
+        {
+            if (!eventProxyActive)
+                return;
+
+            if (!Context.IsWorldReady || Game1.player == null)
+            {
+                FinishEventProxy(false, "world_not_ready", false);
+                return;
+            }
+
+            if (Game1.game1 != null && Game1.game1.IsSaving)
+            {
+                FinishEventProxy(false, "saving", false);
+                return;
+            }
+
+            TimeSpan elapsed = eventProxyStartedAt.HasValue
+                ? DateTime.UtcNow - eventProxyStartedAt.Value
+                : TimeSpan.Zero;
+
+            if (Game1.CurrentEvent != null)
+            {
+                if (!eventProxyEventStarted)
+                {
+                    eventProxyEventStarted = true;
+                    eventProxyEventStartedAt = DateTime.UtcNow;
+                    eventProxyEventId = Game1.CurrentEvent.id ?? "";
+                    eventProxyState = "event_active";
+                    eventProxyReason = Game1.CurrentEvent.skippable ? "skippable_event_started" : "non_skippable_event_started";
+                    SetLastAutomation("eventProxy", true, $"event_started:{eventProxyEventId}:{eventProxyLocation}");
+                    this.Monitor.Log($"[EventProxy] Host proxy event started at {eventProxyLocation}: {eventProxyEventId} (skippable={Game1.CurrentEvent.skippable})", LogLevel.Info);
+                }
+
+                TimeSpan eventElapsed = eventProxyEventStartedAt.HasValue
+                    ? DateTime.UtcNow - eventProxyEventStartedAt.Value
+                    : TimeSpan.Zero;
+
+                if (Game1.CurrentEvent.skippable
+                    && eventElapsed.TotalSeconds >= Math.Max(1, Config.EventProxySkipEventDelaySeconds))
+                {
+                    TrySkipCurrentProxyEvent("skippable_event_auto_skip");
+                    return;
+                }
+
+                if (eventElapsed.TotalSeconds >= Math.Max(10, Config.EventProxyEventTimeoutSeconds))
+                {
+                    TrySkipCurrentProxyEvent(Game1.CurrentEvent.skippable
+                        ? "skippable_event_timeout_skip"
+                        : "non_skippable_event_timeout_force_skip");
+                    return;
+                }
+
+                return;
+            }
+
+            if (eventProxyState == "warping")
+            {
+                eventProxyState = "checking";
+                eventProxyReason = "checking_location_events";
+
+                TryInvokeLocationEventCheck();
+
+                if (Game1.CurrentEvent != null)
+                {
+                    return;
+                }
+
+                if (Config.EventProxyUseOffMapPosition)
+                {
+                    Game1.player.Position = new Vector2(-999999, -999999);
+                }
+
+                isHostHidden = true;
+                manualHostVisible = false;
+            }
+
+            if (eventProxyEventStarted)
+            {
+                FinishEventProxy(true, $"event_finished:{eventProxyEventId}", true);
+                return;
+            }
+
+            if (elapsed.TotalSeconds >= Math.Max(1, Config.EventProxyNoEventWaitSeconds))
+            {
+                FinishEventProxy(true, "no_host_event_for_location", true);
+            }
+        }
+
+        private void TryInvokeLocationEventCheck()
+        {
+            try
+            {
+                if (Game1.currentLocation == null)
+                    return;
+
+                var checkForEvents = this.Helper.Reflection.GetMethod(Game1.currentLocation, "checkForEvents", required: false);
+                if (checkForEvents != null)
+                {
+                    checkForEvents.Invoke();
+                    return;
+                }
+
+                LogDebug("[EventProxy] GameLocation.checkForEvents method was not found; relying on warp entry checks.");
+            }
+            catch (Exception ex)
+            {
+                eventProxyReason = $"check_failed:{ex.Message}";
+                this.Monitor.Log($"[EventProxy] Failed to invoke location event check: {ex.Message}", LogLevel.Warn);
+            }
+        }
+
+        private void TrySkipCurrentProxyEvent(string reason)
+        {
+            try
+            {
+                string eventId = Game1.CurrentEvent?.id ?? eventProxyEventId;
+                eventProxyEventId = eventId ?? "";
+                Game1.CurrentEvent?.skipEvent();
+                FinishEventProxy(true, $"{reason}:{eventProxyEventId}", true);
+                this.Monitor.Log($"[EventProxy] Host proxy event completed by skip: {eventProxyEventId} ({reason})", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                FinishEventProxy(false, $"skip_failed:{ex.Message}", true);
+                this.Monitor.Log($"[EventProxy] Failed to skip proxy event {eventProxyEventId}: {ex.Message}", LogLevel.Error);
+            }
+        }
+
+        private void FinishEventProxy(bool success, string message, bool rehide)
+        {
+            SetLastEventProxy(success, success ? "complete" : "failed", message);
+            SetLastAutomation("eventProxy", success, $"{eventProxyLocation}:{message}");
+            eventProxyActive = false;
+            eventProxyEventStarted = false;
+            eventProxyStartedAt = null;
+            eventProxyEventStartedAt = null;
+
+            if (rehide && Context.IsWorldReady && Game1.CurrentEvent == null)
+            {
+                HideHost();
+            }
+        }
+
         /// <summary>
         /// v1.1.8: 玩家连接时启动守护窗口
         /// </summary>
@@ -2352,6 +2756,13 @@ namespace AutoHideHost
                 return;
 
             TryTriggerFestivalProxy(e);
+            TryTriggerEventProxy(e);
+
+            if (eventProxyActive && e != null && e.IsLocalPlayer)
+            {
+                LogDebug("[EventProxy] Local host warp is owned by the player event proxy; skipping host rehide guard for this warp.");
+                return;
+            }
 
             if (!Config.PreventHostFarmWarp || e == null || !e.IsLocalPlayer)
                 return;

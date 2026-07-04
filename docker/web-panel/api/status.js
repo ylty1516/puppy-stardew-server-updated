@@ -490,6 +490,26 @@ function collectStatus(req = null) {
       timeoutSeconds: 0,
       clientModId: '',
     },
+    eventProxy: {
+      enabled: false,
+      active: false,
+      state: 'unknown',
+      reason: '',
+      playerName: '',
+      playerId: '',
+      location: '',
+      tileX: 0,
+      tileY: 0,
+      eventId: '',
+      activeSeconds: 0,
+      cooldownSeconds: 0,
+      noEventWaitSeconds: 0,
+      skipEventDelaySeconds: 0,
+      eventTimeoutSeconds: 0,
+      offMapPosition: false,
+      ignoredLocations: '',
+      last: null,
+    },
     timePause: {
       paused: false,
       source: 'unknown',
@@ -693,6 +713,38 @@ function collectStatus(req = null) {
         clientModId: typeof gameState.singleFarmhandMenuPause.clientModId === 'string'
           ? gameState.singleFarmhandMenuPause.clientModId
           : status.singleFarmhandMenuPause.clientModId,
+      };
+    }
+    if (gameState.eventProxy && typeof gameState.eventProxy === 'object') {
+      const proxy = gameState.eventProxy;
+      const lastProxy = proxy.last && typeof proxy.last === 'object' ? proxy.last : null;
+      status.eventProxy = {
+        ...status.eventProxy,
+        enabled: proxy.enabled === true,
+        active: proxy.active === true,
+        state: typeof proxy.state === 'string' ? proxy.state : status.eventProxy.state,
+        reason: typeof proxy.reason === 'string' ? proxy.reason : '',
+        playerName: typeof proxy.playerName === 'string' ? proxy.playerName : '',
+        playerId: typeof proxy.playerId === 'string' ? proxy.playerId : '',
+        location: typeof proxy.location === 'string' ? proxy.location : '',
+        tileX: Number.isFinite(proxy.tileX) ? proxy.tileX : 0,
+        tileY: Number.isFinite(proxy.tileY) ? proxy.tileY : 0,
+        eventId: typeof proxy.eventId === 'string' ? proxy.eventId : '',
+        activeSeconds: Number.isFinite(proxy.activeSeconds) ? proxy.activeSeconds : 0,
+        cooldownSeconds: Number.isFinite(proxy.cooldownSeconds) ? proxy.cooldownSeconds : 0,
+        noEventWaitSeconds: Number.isFinite(proxy.noEventWaitSeconds) ? proxy.noEventWaitSeconds : 0,
+        skipEventDelaySeconds: Number.isFinite(proxy.skipEventDelaySeconds) ? proxy.skipEventDelaySeconds : 0,
+        eventTimeoutSeconds: Number.isFinite(proxy.eventTimeoutSeconds) ? proxy.eventTimeoutSeconds : 0,
+        offMapPosition: proxy.offMapPosition === true,
+        ignoredLocations: typeof proxy.ignoredLocations === 'string' ? proxy.ignoredLocations : '',
+        last: lastProxy ? {
+          playerName: typeof lastProxy.playerName === 'string' ? lastProxy.playerName : '',
+          location: typeof lastProxy.location === 'string' ? lastProxy.location : '',
+          eventId: typeof lastProxy.eventId === 'string' ? lastProxy.eventId : '',
+          success: lastProxy.success === true,
+          message: typeof lastProxy.message === 'string' ? lastProxy.message : '',
+          at: typeof lastProxy.at === 'string' ? lastProxy.at : null,
+        } : null,
       };
     }
   } else {

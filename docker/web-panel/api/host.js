@@ -120,8 +120,8 @@ function throwUnconfirmedHostCommand(command, commandId, observed) {
   const missingHostCommandBridge = state && state.worldReady === true && !(observed && observed.hostCommand);
   const loadedVersion = state && state.autoHideHostVersion ? state.autoHideHostVersion : '';
   const action = missingHostCommandBridge
-    ? 'The running AutoHideHost did not expose hostCommand status. Update/rebuild the panel, restart the container, and confirm the bundled AutoHideHost mod was upgraded to v1.3.1 or newer.'
-    : 'Check that AutoHideHost v1.3.1 or newer is loaded, wait for the save to finish loading, then retry.';
+    ? 'The running AutoHideHost did not expose hostCommand status. Update/rebuild the panel, restart the container, and confirm the bundled AutoHideHost mod was upgraded to v1.4.0 or newer.'
+    : 'Check that AutoHideHost v1.4.0 or newer is loaded, wait for the save to finish loading, then retry.';
 
   throw new AppError('Host command was not confirmed by AutoHideHost', {
     status: 504,
@@ -147,7 +147,7 @@ function throwFailedHostCommand(observed) {
     code: 'HOST_COMMAND_REJECTED',
     cause: hostCommand.message || 'AutoHideHost reported that the command could not be executed.',
     details: JSON.stringify(hostCommand),
-    action: 'Open Diagnostics and VNC to check whether the save is loaded, the host is the main server, and no blocking menu/event is active.',
+    action: 'Open Diagnostics to check whether the save is loaded, the host is the main server, and no blocking menu/event is active.',
   });
 }
 
@@ -175,8 +175,9 @@ async function startExpansionInit(req, res) {
     res.json({
       success: true,
       action: 'start-expansion-init',
-      message: 'Expansion mod initialization mode confirmed. Use VNC to complete the host-side intro event, then hide the host again.',
+      message: 'Expansion mod initialization mode confirmed. Player event proxy remains the normal path; this manual mode is only for troubleshooting.',
       expansionModCompatibility: result.state.expansionModCompatibility || null,
+      eventProxy: result.state.eventProxy || null,
       hostHidden: result.state.hostHidden === true,
       hostCommand: result.hostCommand,
       commandId: result.commandId,
@@ -187,7 +188,7 @@ async function startExpansionInit(req, res) {
       code: 'HOST_EXPANSION_START_FAILED',
       message: 'Failed to start expansion mod initialization mode',
       cause: 'The panel could not ask AutoHideHost to show the host.',
-      action: 'Check that SMAPI is running and AutoHideHost v1.3.1 or newer is loaded.',
+      action: 'Check that SMAPI is running and AutoHideHost v1.4.0 or newer is loaded.',
     });
   }
 }
@@ -200,6 +201,7 @@ async function finishExpansionInit(req, res) {
       action: 'finish-expansion-init',
       message: 'Host hide command confirmed. Large mod compatibility remains enabled.',
       expansionModCompatibility: result.state.expansionModCompatibility || null,
+      eventProxy: result.state.eventProxy || null,
       hostHidden: result.state.hostHidden === true,
       hostCommand: result.hostCommand,
       commandId: result.commandId,
@@ -210,7 +212,7 @@ async function finishExpansionInit(req, res) {
       code: 'HOST_EXPANSION_FINISH_FAILED',
       message: 'Failed to hide host',
       cause: 'The panel could not ask AutoHideHost to hide the host.',
-      action: 'Check that SMAPI is running and AutoHideHost v1.3.1 or newer is loaded.',
+      action: 'Check that SMAPI is running and AutoHideHost v1.4.0 or newer is loaded.',
     });
   }
 }

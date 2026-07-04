@@ -33,6 +33,13 @@ namespace AutoHideHost
         public int HostCommandPollTicks { get; set; } = 30;
         public bool EnableFestivalProxyTrigger { get; set; } = true;
         public int FestivalProxyCooldownSeconds { get; set; } = 20;
+        public bool EnableEventProxyTrigger { get; set; } = true;
+        public int EventProxyCooldownSeconds { get; set; } = 25;
+        public int EventProxyNoEventWaitSeconds { get; set; } = 3;
+        public int EventProxySkipEventDelaySeconds { get; set; } = 4;
+        public int EventProxyEventTimeoutSeconds { get; set; } = 90;
+        public bool EventProxyUseOffMapPosition { get; set; } = true;
+        public string EventProxyIgnoredLocations { get; set; } = "";
         public bool AutoSkipSkippableEvents { get; set; } = false;
     }
 }
