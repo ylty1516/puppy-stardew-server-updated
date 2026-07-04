@@ -2146,8 +2146,8 @@ async function handleModUpload(input) {
     return;
   }
 
-  if (file.size > 50 * 1024 * 1024) {
-    showToast('File too large (max 50MB)', 'error');
+  if (file.size > 100 * 1024 * 1024) {
+    showToast('File too large (max 100MB)', 'error');
     return;
   }
 

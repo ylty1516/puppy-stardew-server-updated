@@ -59,8 +59,8 @@ server.on('error', (err) => {
 });
 
 // Middleware
-app.use(express.json({ limit: '60mb' }));
-app.use(express.urlencoded({ extended: false, limit: '60mb' }));
+app.use(express.json({ limit: '150mb' }));
+app.use(express.urlencoded({ extended: false, limit: '150mb' }));
 
 app.use((err, req, res, next) => {
   if (!err) return next();

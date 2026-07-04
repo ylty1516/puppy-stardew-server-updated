@@ -1231,9 +1231,9 @@ function uploadMod(req, res) {
     // Write file from base64
     var buffer = Buffer.from(data, 'base64');
 
-    // Size limit: 50MB
-    if (buffer.length > 50 * 1024 * 1024) {
-      return sendError(res, req, new AppError('File too large (max 50MB)', {
+    // Size limit: 100MB
+    if (buffer.length > 100 * 1024 * 1024) {
+      return sendError(res, req, new AppError('File too large (max 100MB)', {
         status: 413,
         code: 'MOD_UPLOAD_TOO_LARGE',
         cause: 'The mod archive exceeds the panel upload limit.',
