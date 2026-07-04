@@ -20,6 +20,7 @@ BOLD='\033[1m'
 
 # Container name
 CONTAINER_NAME="puppy-stardew"
+MANAGER_CONTAINER_NAME="puppy-stardew-manager"
 
 # Test results
 TESTS_PASSED=0
@@ -123,8 +124,24 @@ check_container_health() {
     fi
 }
 
+check_manager_container() {
+    print_test "4. Checking manager container..."
+
+    if docker ps --format '{{.Names}}' | grep -q "^${MANAGER_CONTAINER_NAME}$"; then
+        print_success "Manager container is running"
+    elif docker ps -a --format '{{.Names}}' | grep -q "^${MANAGER_CONTAINER_NAME}$"; then
+        print_error "Manager container exists but is not running"
+        print_info "Web update/reset tasks need it. Restart with: docker compose up -d --build stardew-manager"
+        return 1
+    else
+        print_error "Manager container does not exist"
+        print_info "Web update/reset tasks need it. Recreate services with: docker compose up -d --build"
+        return 1
+    fi
+}
+
 check_smapi_running() {
-    print_test "4. Checking SMAPI (game process)..."
+    print_test "5. Checking SMAPI (game process)..."
 
     if docker exec $CONTAINER_NAME pgrep -f StardewModdingAPI &> /dev/null; then
         # Get process details
@@ -181,7 +198,7 @@ try {
 }
 
 check_web_panel() {
-    print_test "5. Checking web panel..."
+    print_test "6. Checking web panel..."
 
     if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 http://127.0.0.1:18642/api/auth/status >/dev/null' 2>/dev/null; then
         print_success "Web panel API is reachable inside the container"
@@ -193,7 +210,7 @@ check_web_panel() {
 }
 
 check_state_bridge() {
-    print_test "6. Checking SMAPI state bridge..."
+    print_test "7. Checking SMAPI state bridge..."
 
     local summary freshness age world_ready multiplayer_ready joinable players reason updated_at
     summary=$(get_container_state_summary)
@@ -218,7 +235,7 @@ check_state_bridge() {
 }
 
 check_joinability() {
-    print_test "7. Checking player joinability..."
+    print_test "8. Checking player joinability..."
 
     local summary freshness age world_ready multiplayer_ready joinable players reason updated_at
     summary=$(get_container_state_summary)
@@ -259,7 +276,7 @@ check_joinability() {
 }
 
 check_mods_loaded() {
-    print_test "8. Checking mods..."
+    print_test "9. Checking mods..."
 
     # Check last 100 lines of logs for mod loading messages
     mod_count=$(docker logs --tail 100 $CONTAINER_NAME 2>&1 | grep -c "Loaded.*mod" || true)
@@ -281,7 +298,7 @@ check_mods_loaded() {
 }
 
 check_ports() {
-    print_test "9. Checking port bindings..."
+    print_test "10. Checking port bindings..."
 
     # Check game port (24642/udp)
     if docker port $CONTAINER_NAME 24642/udp &> /dev/null; then
@@ -317,7 +334,7 @@ check_ports() {
 }
 
 check_metrics_endpoint() {
-    print_test "10. Checking metrics endpoint..."
+    print_test "11. Checking metrics endpoint..."
 
     if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 "http://127.0.0.1:${METRICS_PORT:-9090}/metrics" | grep -q puppy_stardew_game_running' 2>/dev/null; then
         print_success "Prometheus metrics endpoint is responding"
@@ -327,8 +344,41 @@ check_metrics_endpoint() {
     fi
 }
 
+check_architecture_metadata() {
+    print_test "12. Checking architecture metadata..."
+
+    if [ -d "./data/meta" ]; then
+        print_success "Local data/meta directory exists"
+    else
+        print_warning "Local data/meta directory does not exist yet"
+        print_info "Create it with: mkdir -p data/meta && sudo chown -R 1000:1000 data"
+    fi
+
+    if docker exec "$CONTAINER_NAME" sh -lc 'test -d /home/steam/web-panel/data/meta && test -w /home/steam/web-panel/data/meta' 2>/dev/null; then
+        print_success "Container can write architecture metadata"
+    else
+        print_error "Container cannot write /home/steam/web-panel/data/meta"
+        print_info "Run: mkdir -p data/meta && sudo chown -R 1000:1000 data"
+        return 1
+    fi
+
+    missing_meta=""
+    for meta_file in orchestration-state.json mod_graph.json world_fingerprint.json; do
+        if ! docker exec "$CONTAINER_NAME" sh -lc "test -f /home/steam/web-panel/data/meta/$meta_file" 2>/dev/null; then
+            missing_meta="$missing_meta $meta_file"
+        fi
+    done
+
+    if [ -z "$missing_meta" ]; then
+        print_success "World state metadata files are present"
+    else
+        print_warning "Some metadata files are not written yet:$missing_meta"
+        print_info "They are generated after the server/panel finishes the first status scan."
+    fi
+}
+
 check_resources() {
-    print_test "11. Checking resource usage..."
+    print_test "13. Checking resource usage..."
 
     # Get CPU and memory usage
     stats=$(docker stats $CONTAINER_NAME --no-stream --format "{{.CPUPerc}},{{.MemUsage}}")
@@ -349,7 +399,7 @@ check_resources() {
 }
 
 check_disk_space() {
-    print_test "12. Checking disk space..."
+    print_test "14. Checking disk space..."
 
     # Check if data directory exists
     if [ ! -d "./data" ]; then
@@ -369,7 +419,7 @@ check_disk_space() {
 }
 
 check_firewall() {
-    print_test "13. Checking firewall..."
+    print_test "15. Checking firewall..."
 
     # This is tricky to check automatically, so just provide guidance
     print_info "Make sure port 24642/udp is open in your firewall:"
@@ -440,6 +490,7 @@ main() {
     check_docker || true
     check_container_running || true
     check_container_health || true
+    check_manager_container || true
     check_smapi_running || true
     check_web_panel || true
     check_state_bridge || true
@@ -447,6 +498,7 @@ main() {
     check_mods_loaded || true
     check_ports || true
     check_metrics_endpoint || true
+    check_architecture_metadata || true
     check_resources || true
     check_disk_space || true
     check_firewall || true

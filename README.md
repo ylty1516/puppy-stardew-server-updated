@@ -263,7 +263,7 @@ Web 面板会优先读取这个 SMAPI 状态桥，而不是只靠日志推断。
 curl -fsSL https://gh.sixyin.com/https://github.com/ylty1516/puppy-stardew-server-updated/releases/latest/download/install.sh | bash
 ```
 
-脚本会优先下载 GitHub Release 里的项目压缩包，失败时再回退到 main 分支源码压缩包和浅克隆；它会自动生成 `.env`、初始化数据目录权限，并询问是否立即启动 Docker 服务。
+脚本会优先下载 GitHub Release 里的项目压缩包，支持 `.tar.gz` 和 `.zip` 两种 release 资产；失败时再回退到 main 分支源码压缩包和浅克隆。它会自动生成 `.env`、初始化 `data/saves`、`data/game`、`data/meta`、`data/secrets` 等目录权限，并询问是否立即启动 Docker 服务。
 
 如果代理不可用，可以使用 GitHub 原地址：
 
@@ -308,6 +308,16 @@ http://你的服务器IP:18642
 ```text
 24642/udp
 ```
+
+装完后建议立刻做一次验收：
+
+```bash
+docker compose ps
+./health-check.sh
+./verify-deployment.sh
+```
+
+其中 `health-check.sh` 会检查游戏容器、Web 面板、SMAPI 状态桥、在线可加入状态、管理容器、V2 元数据目录和端口映射；`verify-deployment.sh` 更适合出问题时复制结果给维护者排查。
 
 ## 更新面板
 

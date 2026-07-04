@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-05 可运行性与安装体验修复
+### Improvements
+- 安装脚本现在支持 GitHub Release 的 `.tar.gz` 和 `.zip` 两种压缩包，Release 资产缺一种时也能自动回退，减少服务器安装时卡在下载/解压的概率。
+- 首次启动脚本会创建 `data/meta` 和 `data/secrets`，让架构 V2 元数据、世界指纹和 Steam JSON 凭证目录从第一次部署起就保持一致。
+- `health-check.sh` 新增管理容器和架构元数据检查，能提前发现 Web 一键更新、出厂化重置、世界指纹写入不可用的问题。
+- `verify-deployment.sh` 新增管理容器、`data/meta` 写入和 V2 元数据文件检查，方便服主装完后直接验收整套服务是否真正可用。
+- README 快速开始补充安装包格式、目录初始化和装完验收命令，降低宝塔 SSH/小服务器部署时的排查成本。
+
 ## 2026-07-05 架构 V2 基础改造
 ### New Features
 - 新增世界状态模型：根据当前存档、Mod 依赖图和 SMAPI 版本生成 `world_fingerprint.json`，用于判断世界组合是否发生变化。

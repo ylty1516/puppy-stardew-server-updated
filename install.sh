@@ -5,6 +5,7 @@ set -e
 
 DIRECT_REPO_URL="https://github.com/ylty1516/puppy-stardew-server-updated.git"
 DIRECT_RELEASE_ARCHIVE_URL="https://github.com/ylty1516/puppy-stardew-server-updated/releases/latest/download/puppy-stardew-server-updated.tar.gz"
+DIRECT_RELEASE_ZIP_URL="https://github.com/ylty1516/puppy-stardew-server-updated/releases/latest/download/puppy-stardew-server-updated.zip"
 DIRECT_SOURCE_ARCHIVE_URL="https://github.com/ylty1516/puppy-stardew-server-updated/archive/refs/heads/main.tar.gz"
 GITHUB_PROXY_PREFIX="${PUPPY_GITHUB_PROXY_PREFIX:-https://gh.sixyin.com/}"
 if [ "${PUPPY_USE_GITHUB_PROXY:-true}" = "false" ]; then
@@ -21,6 +22,7 @@ proxy_url() {
 
 REPO_URL="${PUPPY_REPO_URL:-$(proxy_url "$DIRECT_REPO_URL")}"
 ARCHIVE_URL="${PUPPY_ARCHIVE_URL:-$(proxy_url "$DIRECT_RELEASE_ARCHIVE_URL")}"
+RELEASE_ZIP_URL="${PUPPY_RELEASE_ZIP_URL:-$(proxy_url "$DIRECT_RELEASE_ZIP_URL")}"
 SOURCE_ARCHIVE_URL="${PUPPY_SOURCE_ARCHIVE_URL:-$(proxy_url "$DIRECT_SOURCE_ARCHIVE_URL")}"
 REPO_DIR="${PUPPY_STARDEW_DIR:-puppy-stardew-server-updated}"
 
@@ -40,9 +42,9 @@ run_quick_start() {
 
 download_archive() {
   url="$1"
-  command -v tar >/dev/null 2>&1 || return 1
 
   TMP_ARCHIVE="$(mktemp)" || return 1
+  TMP_DIR=""
   if command -v curl >/dev/null 2>&1; then
     curl -fL --connect-timeout 15 --retry 2 --retry-delay 2 "$url" -o "$TMP_ARCHIVE"
   elif command -v wget >/dev/null 2>&1; then
@@ -63,11 +65,32 @@ download_archive() {
     return 1
   }
 
-  if tar -xzf "$TMP_ARCHIVE" --strip-components=1 -C "$REPO_DIR"; then
+  if command -v tar >/dev/null 2>&1 && tar -xzf "$TMP_ARCHIVE" --strip-components=1 -C "$REPO_DIR" 2>/dev/null; then
     rm -f "$TMP_ARCHIVE"
     return 0
   fi
 
+  if command -v unzip >/dev/null 2>&1; then
+    TMP_DIR="$(mktemp -d)" || {
+      rm -rf "$REPO_DIR"
+      rm -f "$TMP_ARCHIVE"
+      return 1
+    }
+    if unzip -q "$TMP_ARCHIVE" -d "$TMP_DIR" 2>/dev/null; then
+      root_count="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+      if [ "$root_count" = "1" ] && [ -d "$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)" ]; then
+        root_dir="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+        cp -a "$root_dir/." "$REPO_DIR/"
+      else
+        cp -a "$TMP_DIR/." "$REPO_DIR/"
+      fi
+      rm -rf "$TMP_DIR"
+      rm -f "$TMP_ARCHIVE"
+      return 0
+    fi
+  fi
+
+  rm -rf "$TMP_DIR"
   rm -rf "$REPO_DIR"
   rm -f "$TMP_ARCHIVE"
   return 1
@@ -102,6 +125,22 @@ fi
 if [ "$ARCHIVE_URL" != "$DIRECT_RELEASE_ARCHIVE_URL" ]; then
   info "Release 代理压缩包下载失败，尝试 GitHub Release 原地址..."
   if download_archive "$DIRECT_RELEASE_ARCHIVE_URL"; then
+    cd "$REPO_DIR" || die "无法进入目录 $REPO_DIR"
+    run_quick_start
+    exit 0
+  fi
+fi
+
+info "Release tar.gz 不可用，尝试 Release zip 压缩包..."
+if download_archive "$RELEASE_ZIP_URL"; then
+  cd "$REPO_DIR" || die "无法进入目录 $REPO_DIR"
+  run_quick_start
+  exit 0
+fi
+
+if [ "$RELEASE_ZIP_URL" != "$DIRECT_RELEASE_ZIP_URL" ]; then
+  info "Release zip 代理压缩包下载失败，尝试 GitHub Release zip 原地址..."
+  if download_archive "$DIRECT_RELEASE_ZIP_URL"; then
     cd "$REPO_DIR" || die "无法进入目录 $REPO_DIR"
     run_quick_start
     exit 0

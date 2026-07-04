@@ -13,6 +13,7 @@ PASS=0
 FAIL=0
 WARN=0
 CONTAINER_NAME=${CONTAINER_NAME:-puppy-stardew}
+MANAGER_CONTAINER_NAME=${MANAGER_CONTAINER_NAME:-puppy-stardew-manager}
 
 check_pass() {
     echo -e "${GREEN}✓ PASS${NC} - $1"
@@ -92,6 +93,18 @@ if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
 else
     check_fail "Container is not running"
     exit 1
+fi
+echo ""
+
+echo -e "${CYAN}[Runtime] Manager Container${NC}"
+if docker ps --format '{{.Names}}' | grep -qx "$MANAGER_CONTAINER_NAME"; then
+    check_pass "Manager container is running"
+elif docker ps -a --format '{{.Names}}' | grep -qx "$MANAGER_CONTAINER_NAME"; then
+    check_fail "Manager container exists but is stopped; web update/reset tasks will not run"
+    echo -e "Fix: ${CYAN}docker compose up -d --build stardew-manager${NC}"
+else
+    check_fail "Manager container is missing; web update/reset tasks will not run"
+    echo -e "Fix: ${CYAN}docker compose up -d --build${NC}"
 fi
 echo ""
 
@@ -229,6 +242,35 @@ if docker exec "$CONTAINER_NAME" sh -lc 'curl -fsS --max-time 5 "http://127.0.0.
     check_pass "Metrics endpoint is reachable"
 else
     check_warn "Metrics endpoint is not reachable yet"
+fi
+echo ""
+
+echo -e "${CYAN}[Runtime] Architecture Metadata${NC}"
+if [ -d "./data/meta" ]; then
+    check_pass "Local data/meta directory exists"
+else
+    check_warn "Local data/meta directory is missing"
+    echo -e "Fix: ${CYAN}mkdir -p data/meta && sudo chown -R 1000:1000 data${NC}"
+fi
+
+if docker exec "$CONTAINER_NAME" sh -lc 'test -d /home/steam/web-panel/data/meta && test -w /home/steam/web-panel/data/meta' 2>/dev/null; then
+    check_pass "Container can write architecture metadata"
+else
+    check_fail "Container cannot write /home/steam/web-panel/data/meta"
+    echo -e "Fix: ${CYAN}mkdir -p data/meta && sudo chown -R 1000:1000 data${NC}"
+fi
+
+MISSING_META=""
+for meta_file in orchestration-state.json mod_graph.json world_fingerprint.json; do
+    if ! docker exec "$CONTAINER_NAME" sh -lc "test -f /home/steam/web-panel/data/meta/$meta_file" 2>/dev/null; then
+        MISSING_META="$MISSING_META $meta_file"
+    fi
+done
+
+if [ -z "$MISSING_META" ]; then
+    check_pass "World state metadata files are present"
+else
+    check_warn "Some metadata files are not written yet:$MISSING_META"
 fi
 echo ""
 

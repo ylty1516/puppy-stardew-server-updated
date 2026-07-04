@@ -173,8 +173,8 @@ services:
     # IMPORTANT: Data directories must be owned by UID 1000
     # 重要：数据目录必须归 UID 1000 所有
     #
-    # Run this before starting: mkdir -p data/{saves,game,steam,logs} && chown -R 1000:1000 data/
-    # 启动前运行：mkdir -p data/{saves,game,steam,logs} && chown -R 1000:1000 data/
+    # Run this before starting: mkdir -p data/{saves,game,steam,logs,backups,custom-mods,panel,meta,secrets} && chown -R 1000:1000 data/
+    # 启动前运行：mkdir -p data/{saves,game,steam,logs,backups,custom-mods,panel,meta,secrets} && chown -R 1000:1000 data/
     volumes:
       - ./data/saves:/home/steam/.config/StardewValley:rw
       - ./data/game:/home/steam/stardewvalley:rw

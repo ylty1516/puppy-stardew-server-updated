@@ -297,7 +297,7 @@ setup_directories() {
     print_step "Step 4: Setting up data directories..."
 
     # Create directories (including logs for log monitoring)
-    mkdir -p data/{saves,game,steam,logs,backups,custom-mods,panel}
+    mkdir -p data/{saves,game,steam,logs,backups,custom-mods,panel,meta,secrets}
 
     # Fix permissions (UID 1000 is the steam user in the container)
     print_info "Setting correct permissions (UID 1000)..."
@@ -425,6 +425,7 @@ show_next_steps() {
     echo -e "   Restart server:   ${CYAN}$COMPOSE_CMD down && $COMPOSE_CMD up -d${NC}"
     echo -e "   Stop server:      ${CYAN}$COMPOSE_CMD down${NC}"
     echo -e "   Check health:     ${CYAN}./health-check.sh${NC}"
+    echo -e "   Verify deploy:    ${CYAN}./verify-deployment.sh${NC}"
     echo -e "   Backup saves:     ${CYAN}./backup.sh${NC}"
     echo ""
     echo -e "${YELLOW}   ⚠️  Note: After modifying .env, you must restart for changes to take effect!${NC}"
