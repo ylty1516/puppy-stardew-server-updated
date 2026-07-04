@@ -195,7 +195,7 @@ function buildLargeContentModCheck(status) {
       label: 'Large content mod event compatibility',
       status: 'warn',
       detail: `Detected ${modNames}, but the live SMAPI state bridge is not fresh enough to confirm host event state.`,
-      action: 'Start the server and wait for AutoHideHost v1.3.0+ to write a fresh game-state.json, then refresh diagnostics.',
+      action: 'Start the server and wait for AutoHideHost v1.3.1+ to write a fresh game-state.json, then refresh diagnostics.',
     };
   }
 
@@ -205,7 +205,7 @@ function buildLargeContentModCheck(status) {
       label: 'Large content mod event compatibility',
       status: 'error',
       detail: `Detected ${modNames}, but AutoHideHost did not report the large-mod compatibility state.`,
-      action: 'Update AutoHideHost to v1.3.0 or newer, rebuild/restart the container, then run diagnostics again.',
+      action: 'Update AutoHideHost to v1.3.1 or newer, rebuild/restart the container, then run diagnostics again.',
     };
   }
 

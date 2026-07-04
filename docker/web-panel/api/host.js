@@ -117,6 +117,12 @@ async function waitForHostCommand(commandId, timeoutMs = HOST_COMMAND_TIMEOUT_MS
 
 function throwUnconfirmedHostCommand(command, commandId, observed) {
   const state = observed && observed.state ? observed.state : null;
+  const missingHostCommandBridge = state && state.worldReady === true && !(observed && observed.hostCommand);
+  const loadedVersion = state && state.autoHideHostVersion ? state.autoHideHostVersion : '';
+  const action = missingHostCommandBridge
+    ? 'The running AutoHideHost did not expose hostCommand status. Update/rebuild the panel, restart the container, and confirm the bundled AutoHideHost mod was upgraded to v1.3.1 or newer.'
+    : 'Check that AutoHideHost v1.3.1 or newer is loaded, wait for the save to finish loading, then retry.';
+
   throw new AppError('Host command was not confirmed by AutoHideHost', {
     status: 504,
     code: 'HOST_COMMAND_NOT_CONFIRMED',
@@ -124,12 +130,13 @@ function throwUnconfirmedHostCommand(command, commandId, observed) {
     details: JSON.stringify({
       command,
       commandId,
+      autoHideHostVersion: loadedVersion || null,
       worldReady: state && state.worldReady,
       hostHidden: state && state.hostHidden,
       hostCommand: observed && observed.hostCommand ? observed.hostCommand : null,
       readError: state && state.readError,
     }),
-    action: 'Check that AutoHideHost v1.3.0 or newer is loaded, wait for the save to finish loading, then retry.',
+    action,
   });
 }
 
@@ -180,7 +187,7 @@ async function startExpansionInit(req, res) {
       code: 'HOST_EXPANSION_START_FAILED',
       message: 'Failed to start expansion mod initialization mode',
       cause: 'The panel could not ask AutoHideHost to show the host.',
-      action: 'Check that SMAPI is running and AutoHideHost v1.3.0 or newer is loaded.',
+      action: 'Check that SMAPI is running and AutoHideHost v1.3.1 or newer is loaded.',
     });
   }
 }
@@ -203,7 +210,7 @@ async function finishExpansionInit(req, res) {
       code: 'HOST_EXPANSION_FINISH_FAILED',
       message: 'Failed to hide host',
       cause: 'The panel could not ask AutoHideHost to hide the host.',
-      action: 'Check that SMAPI is running and AutoHideHost v1.3.0 or newer is loaded.',
+      action: 'Check that SMAPI is running and AutoHideHost v1.3.1 or newer is loaded.',
     });
   }
 }

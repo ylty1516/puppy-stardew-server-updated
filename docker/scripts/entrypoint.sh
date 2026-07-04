@@ -85,6 +85,106 @@ log_steam() {
     echo -e "${CYAN}$1${NC}"
 }
 
+get_mod_manifest_version() {
+    local mod_dir=$1
+    local manifest="$mod_dir/manifest.json"
+
+    if [ ! -f "$manifest" ]; then
+        echo ""
+        return 0
+    fi
+
+    awk -F'"' '/"Version"[[:space:]]*:/ { print $4; exit }' "$manifest" 2>/dev/null || true
+}
+
+sync_preinstalled_mods() {
+    local source_root="/home/steam/preinstalled-mods"
+    local target_root="/home/steam/stardewvalley/Mods"
+    local backup_root="/home/steam/web-panel/data/preinstalled-mod-backups"
+    local timestamp
+    local source_mod
+
+    [ -d "$source_root" ] || return 0
+
+    timestamp=$(date +%Y%m%d-%H%M%S)
+    mkdir -p "$target_root"
+
+    log_info "Syncing bundled server mods..."
+    shopt -s nullglob
+    for source_mod in "$source_root"/*; do
+        [ -d "$source_mod" ] || continue
+
+        local mod_name
+        local target_mod
+        local bundled_version
+        local installed_version
+        local mod_backup_root
+        local config_backup=""
+
+        mod_name=$(basename "$source_mod")
+        target_mod="$target_root/$mod_name"
+        bundled_version=$(get_mod_manifest_version "$source_mod")
+        installed_version=$(get_mod_manifest_version "$target_mod")
+
+        if [ ! -d "$target_mod" ]; then
+            log_info "  Installing bundled mod: $mod_name${bundled_version:+ v$bundled_version}"
+            cp -a "$source_mod" "$target_mod" || {
+                log_warn "  Failed to install bundled mod: $mod_name"
+                continue
+            }
+            continue
+        fi
+
+        if [ -z "$bundled_version" ]; then
+            log_warn "  Bundled mod $mod_name has no manifest version; leaving installed copy untouched"
+            continue
+        fi
+
+        if [ "$bundled_version" = "$installed_version" ]; then
+            log_info "  ✓ $mod_name already current (v$bundled_version)"
+            continue
+        fi
+
+        case "$target_mod" in
+            "$target_root"/*) ;;
+            *)
+                log_warn "  Refusing to update $mod_name because the target path is outside Mods"
+                continue
+                ;;
+        esac
+
+        mod_backup_root="$backup_root/$timestamp"
+        mkdir -p "$mod_backup_root" || {
+            log_warn "  Failed to prepare backup folder; leaving $mod_name untouched"
+            continue
+        }
+
+        log_warn "  Updating bundled mod: $mod_name ${installed_version:-unknown} -> $bundled_version"
+        cp -a "$target_mod" "$mod_backup_root/$mod_name" || {
+            log_warn "  Failed to back up $mod_name; leaving installed copy untouched"
+            continue
+        }
+
+        if [ -f "$target_mod/config.json" ]; then
+            config_backup="$mod_backup_root/$mod_name.config.json"
+            cp -a "$target_mod/config.json" "$config_backup" 2>/dev/null || config_backup=""
+        fi
+
+        rm -rf "$target_mod"
+        if cp -a "$source_mod" "$target_mod"; then
+            if [ -n "$config_backup" ] && [ -f "$config_backup" ]; then
+                cp -a "$config_backup" "$target_mod/config.json" 2>/dev/null || true
+            fi
+            log_info "  ✓ $mod_name updated; backup saved to $mod_backup_root/$mod_name"
+        else
+            log_warn "  Failed to copy bundled $mod_name; restoring backup"
+            rm -rf "$target_mod"
+            cp -a "$mod_backup_root/$mod_name" "$target_mod" 2>/dev/null || true
+        fi
+    done
+    shopt -u nullglob
+}
+
 configure_audio_driver() {
     if [ -n "${SDL_AUDIODRIVER:-}" ]; then
         :
@@ -438,13 +538,7 @@ log_step "Step 4: Installing mods..."
 mkdir -p /home/steam/stardewvalley/Mods
 
 if [ -d "/home/steam/preinstalled-mods" ]; then
-    if [ -d "/home/steam/stardewvalley/Mods/AutoHideHost" ]; then
-        log_info "✓ Mods already installed"
-    else
-        log_info "Installing mods..."
-        cp -r /home/steam/preinstalled-mods/* /home/steam/stardewvalley/Mods/
-        log_info "✓ Mods installed successfully!"
-    fi
+    sync_preinstalled_mods
 
     log_info "Installed mods:"
     ls -1 /home/steam/stardewvalley/Mods/ | while read mod; do

@@ -1308,6 +1308,7 @@ namespace AutoHideHost
                 var json = new StringBuilder();
                 json.Append("{\n");
                 json.Append($"  \"updatedAt\": {JsonString(DateTime.UtcNow.ToString("O"))},\n");
+                json.Append($"  \"autoHideHostVersion\": {JsonString(this.ModManifest.Version.ToString())},\n");
                 json.Append($"  \"worldReady\": {JsonBool(worldReady)},\n");
                 json.Append($"  \"isMainPlayer\": {JsonBool(Context.IsMainPlayer)},\n");
                 json.Append($"  \"isServer\": {JsonBool(isServer)},\n");
