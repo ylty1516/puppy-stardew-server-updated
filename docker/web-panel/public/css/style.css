@@ -1239,6 +1239,22 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.danger-zone {
+  border-color: var(--accent-error);
+}
+
+.danger-zone .section-header {
+  align-items: flex-start;
+}
+
+.danger-zone-copy {
+  margin: -2px 0 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* Toggle switch */
 .toggle {
   position: relative;

@@ -328,6 +328,14 @@ cd /你的项目目录 && (curl -fsSL https://gh.sixyin.com/https://raw.githubus
 
 完成这次以后，后续更新就可以直接在 Web 面板里点按钮，不用再进 SSH。
 
+## Web 面板危险操作
+
+`模组` 页面提供 `清空上传Mod` 按钮。它会删除 `data/custom-mods/` 里的全部上传文件和 `data/game/Mods/` 里的非内置自定义 Mod，并自动重建玩家 Mod 下载包；`AutoHideHost`、`ServerAutoLoad`、`AlwaysOnServer`、`SkillLevelGuard` 等内置服务端 Mod 会保留。执行前会创建 Mod 回滚备份，重启服务器后完全生效。
+
+`配置` 页面提供 `出厂化重置游戏` 按钮。它会要求输入 `RESET` 确认，然后由 `stardew-manager` 启动独立任务执行：备份存档、上传 Mod 和关键配置，停止游戏容器，清空 `data/saves`、`data/game`、`data/custom-mods`、`data/logs`、玩家 Mod 下载包和运行控制文件，再重新创建服务器。
+
+出厂化重置会保留项目源码、`.env`、面板登录数据、`data/steam`、`data/backups` 和 `secrets/`。因为 `data/game` 会被清空，下一次启动会重新下载/校验 Stardew Valley 并安装内置 Mod，耗时取决于服务器网络和 Steam 下载速度。
+
 ## 2核2G 小服务器优化
 
 这个项目运行的是真实 Stardew Valley + SMAPI 客户端，所以主要资源占用来自游戏本体、Xvfb/VNC、Steam 和已安装 Mod。面板这边已经按 2核2G 做了轻量默认值：状态接口 5 秒缓存、在线人数仍按 20 秒刷新、日志只读尾部、Mod 公共清单 2 分钟缓存、健康检查命令 1.5 秒超时，并限制内存里的历史记录长度。

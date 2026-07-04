@@ -140,6 +140,11 @@ const updateAPI = require('./api/update');
 app.get('/api/update/status', auth.verifyMiddleware, updateAPI.getUpdateStatus);
 app.post('/api/update', auth.verifyMiddleware, updateAPI.startUpdate);
 
+// Maintenance API
+const maintenanceAPI = require('./api/maintenance');
+app.get('/api/maintenance/factory-reset/status', auth.verifyMiddleware, maintenanceAPI.getFactoryResetStatus);
+app.post('/api/maintenance/factory-reset', auth.verifyMiddleware, maintenanceAPI.startFactoryReset);
+
 // Mods API
 const modsAPI = require('./api/mods');
 app.get('/api/public/mods', modsAPI.getPublicMods);
@@ -153,6 +158,7 @@ app.get('/api/mods/backups', auth.verifyMiddleware, modsAPI.listModBackups);
 app.get('/api/mods/backups/download/:filename', auth.verifyMiddleware, modsAPI.downloadModBackup);
 app.post('/api/mods/rollback/:filename', auth.verifyMiddleware, modsAPI.rollbackModBackup);
 app.post('/api/mods/upload', auth.verifyMiddleware, modsAPI.uploadMod);
+app.delete('/api/mods/custom', auth.verifyMiddleware, modsAPI.clearCustomMods);
 app.delete('/api/mods/:folder', auth.verifyMiddleware, modsAPI.deleteMod);
 
 // Diagnostics API

@@ -33,12 +33,16 @@ let lastBackupStatus = null;
 let panelUpdatePoll = null;
 let lastPanelUpdateStatus = null;
 let lastChangelogData = null;
+let factoryResetPoll = null;
+let lastFactoryResetStatus = null;
+let lastModsData = null;
 
 const STATUS_REFRESH_MS = 20000;
 const PLAYERS_REFRESH_MS = 20000;
 const BACKUP_STATUS_POLL_MS = 2000;
 const CONTAINER_RECONNECT_POLL_MS = 2000;
 const PANEL_UPDATE_POLL_MS = 3000;
+const FACTORY_RESET_POLL_MS = 3000;
 
 function detectTheme() {
   const saved = localStorage.getItem('panel_theme');
@@ -166,6 +170,11 @@ const translations = {
     'config.update': '更新', 'config.saveChanges': '保存更改', 'mods.title': '已安装模组', 'mods.none': '未找到模组',
     'mods.custom': '自定义', 'mods.builtin': '内置',
     'mods.upload': '上传模组', 'mods.download': '下载', 'mods.delete': '删除', 'mods.confirmDelete': '确定要删除模组 {name} 吗？',
+    'mods.clearCustom': '清空上传Mod',
+    'mods.confirmClearCustom': '这会删除全部上传 Mod、已安装的自定义 Mod 和玩家 Mod 下载包。内置服务端 Mod 会保留。请输入 DELETE 确认删除 {count} 个上传 Mod。',
+    'mods.confirmClearMismatch': '未输入 DELETE，已取消清空上传 Mod。',
+    'mods.clearCustomOk': '上传 Mod 已清空。重启服务器后完全生效。',
+    'mods.clearCustomEmpty': '当前没有上传 Mod 需要清理。',
     'mods.uploadHint': '选择 .zip 模组文件', 'mods.uploading': '上传中...',
     'mods.overwriting': '正在覆盖旧模组...',
     'mods.confirmOverwrite': '已存在同名模组 {name}。是否先自动备份并覆盖旧模组？',
@@ -192,6 +201,7 @@ const translations = {
     'mods.confirmRollback': '确定要回滚到这个 Mod 备份吗？当前 Mod 状态会先自动保存一份安全备份。',
     'mods.rollbackOk': 'Mod 已回滚。请重启服务器后生效。',
     'mods.rollbackFail': 'Mod 回滚失败',
+    'toast.modClearCustomFail': '清空上传 Mod 失败',
     'toast.modUploadOk': '模组上传成功！重启服务器后生效。', 'toast.modUploadFail': '模组上传失败',
     'toast.modDeleteOk': '模组已删除', 'toast.modDeleteFail': '模组删除失败',
     'toast.modDownloadOk': '模组下载已开始。',
@@ -241,6 +251,34 @@ const translations = {
     'update.backupDir': '备份目录：{path}',
     'update.exitCode': '退出码：{code}',
     'update.managerUnavailable': '更新管理容器不可达',
+    'maintenance.title': '危险操作',
+    'maintenance.factoryReset': '出厂化重置游戏',
+    'maintenance.runningButton': '重置中',
+    'maintenance.refresh': '刷新状态',
+    'maintenance.idle': '当前没有出厂化任务',
+    'maintenance.hint': '会先备份存档和上传 Mod，再停止游戏容器、清理运行数据并重新创建服务器。',
+    'maintenance.factoryResetHint': '会重置存档、游戏文件、上传 Mod、日志和运行控制文件；保留面板登录、Steam 缓存、备份和项目源码。',
+    'maintenance.confirm': '危险操作：这会重置游戏运行数据并重启服务器。请输入 RESET 确认。',
+    'maintenance.confirmMismatch': '未输入 RESET，已取消出厂化重置。',
+    'maintenance.started': '出厂化重置已开始，面板可能会短暂断开。',
+    'maintenance.startFail': '启动出厂化重置失败',
+    'maintenance.statusFail': '读取出厂化状态失败',
+    'maintenance.reconnecting': '出厂化重置过程中面板暂时断开，正在等待服务恢复。',
+    'maintenance.state.idle': '未开始',
+    'maintenance.state.running': '重置中',
+    'maintenance.state.succeeded': '重置完成',
+    'maintenance.state.failed': '重置失败',
+    'maintenance.state.unknown': '状态未知',
+    'maintenance.phase.idle': '空闲',
+    'maintenance.phase.queued': '排队中',
+    'maintenance.phase.status_read_failed': '状态读取失败',
+    'maintenance.phase.manager_unavailable': '管理容器不可达',
+    'maintenance.phase.backup': '备份中',
+    'maintenance.phase.stop': '停止容器',
+    'maintenance.phase.reset': '清理数据',
+    'maintenance.phase.restart': '重启服务',
+    'maintenance.phase.start_container': '启动执行容器',
+    'maintenance.phase.complete': '完成',
     'login.subtitle': '服务器管理面板', 'login.password': '密码', 'login.button': '登录',
     'setup.title': '设置管理密码', 'setup.subtitle': '首次使用，请设置您的管理密码',
     'setup.password': '设置密码', 'setup.confirm': '确认密码', 'setup.button': '开始使用',
@@ -389,6 +427,11 @@ const translations = {
     'config.update': 'Update', 'config.saveChanges': 'Save Changes', 'mods.title': 'Installed Mods', 'mods.none': 'No mods found',
     'mods.custom': 'Custom', 'mods.builtin': 'Built-in',
     'mods.upload': 'Upload Mod', 'mods.download': 'Download', 'mods.delete': 'Delete', 'mods.confirmDelete': 'Are you sure you want to delete mod {name}?',
+    'mods.clearCustom': 'Clear Uploaded Mods',
+    'mods.confirmClearCustom': 'This removes all uploaded mods, installed custom mods, and the client mod pack. Built-in server mods stay installed. Type DELETE to confirm removing {count} uploaded mod(s).',
+    'mods.confirmClearMismatch': 'DELETE was not entered, so uploaded mods were not cleared.',
+    'mods.clearCustomOk': 'Uploaded mods cleared. Restart the server to fully apply.',
+    'mods.clearCustomEmpty': 'There are no uploaded mods to clear.',
     'mods.uploadHint': 'Select a .zip mod file', 'mods.uploading': 'Uploading...',
     'mods.overwriting': 'Overwriting old mod...',
     'mods.confirmOverwrite': 'A mod named {name} already exists. Back it up and overwrite it now?',
@@ -415,6 +458,7 @@ const translations = {
     'mods.confirmRollback': 'Rollback to this mod backup? The current mod state will be saved as a safety backup first.',
     'mods.rollbackOk': 'Mods rolled back. Restart the server to apply.',
     'mods.rollbackFail': 'Mod rollback failed',
+    'toast.modClearCustomFail': 'Failed to clear uploaded mods',
     'toast.modUploadOk': 'Mod uploaded! Restart server to apply.', 'toast.modUploadFail': 'Mod upload failed',
     'toast.modDeleteOk': 'Mod deleted', 'toast.modDeleteFail': 'Mod delete failed',
     'toast.modDownloadOk': 'Mod download started.',
@@ -464,6 +508,34 @@ const translations = {
     'update.backupDir': 'Backup: {path}',
     'update.exitCode': 'Exit code: {code}',
     'update.managerUnavailable': 'Update manager is unreachable',
+    'maintenance.title': 'Danger Zone',
+    'maintenance.factoryReset': 'Factory Reset Game',
+    'maintenance.runningButton': 'Resetting',
+    'maintenance.refresh': 'Refresh Status',
+    'maintenance.idle': 'No factory reset running',
+    'maintenance.hint': 'Creates a safety backup, stops the game container, clears runtime data, and recreates the server.',
+    'maintenance.factoryResetHint': 'Resets saves, game files, uploaded mods, logs, and runtime control files while preserving panel login, Steam cache, backups, and project code.',
+    'maintenance.confirm': 'Danger: this resets game runtime data and restarts the server. Type RESET to confirm.',
+    'maintenance.confirmMismatch': 'RESET was not entered, so factory reset was cancelled.',
+    'maintenance.started': 'Factory reset started. The panel may disconnect briefly.',
+    'maintenance.startFail': 'Failed to start factory reset',
+    'maintenance.statusFail': 'Failed to read factory reset status',
+    'maintenance.reconnecting': 'The panel disconnected during factory reset. Waiting for service recovery.',
+    'maintenance.state.idle': 'Idle',
+    'maintenance.state.running': 'Resetting',
+    'maintenance.state.succeeded': 'Reset complete',
+    'maintenance.state.failed': 'Reset failed',
+    'maintenance.state.unknown': 'Unknown',
+    'maintenance.phase.idle': 'Idle',
+    'maintenance.phase.queued': 'Queued',
+    'maintenance.phase.status_read_failed': 'Status read failed',
+    'maintenance.phase.manager_unavailable': 'Manager unreachable',
+    'maintenance.phase.backup': 'Backing up',
+    'maintenance.phase.stop': 'Stopping container',
+    'maintenance.phase.reset': 'Clearing data',
+    'maintenance.phase.restart': 'Restarting services',
+    'maintenance.phase.start_container': 'Starting runner',
+    'maintenance.phase.complete': 'Complete',
     'login.subtitle': 'Server Management Panel', 'login.password': 'Password', 'login.button': 'Login',
     'setup.title': 'Set Admin Password', 'setup.subtitle': 'First time setup - please create your admin password',
     'setup.password': 'Password', 'setup.confirm': 'Confirm Password', 'setup.button': 'Get Started',
@@ -693,6 +765,7 @@ function reloadCurrentPage() {
     case 'config':
       loadConfig();
       loadPanelUpdateStatus(true);
+      loadFactoryResetStatus(true);
       break;
     case 'mods':
       loadMods();
@@ -763,7 +836,7 @@ function navigateTo(page) {
     case 'diagnostics': loadDiagnostics(); break;
     case 'players': startPlayersAutoRefresh(); break;
     case 'saves': loadSaves(); break;
-    case 'config': loadConfig(); loadPanelUpdateStatus(true); break;
+    case 'config': loadConfig(); loadPanelUpdateStatus(true); loadFactoryResetStatus(true); break;
     case 'mods': loadMods(); break;
   }
 }
@@ -1948,6 +2021,168 @@ async function startPanelUpdate() {
   }
 }
 
+function getFactoryResetState(status) {
+  if (!status || typeof status !== 'object') return 'idle';
+  return status.state || (status.running ? 'running' : 'idle');
+}
+
+function getFactoryResetPhaseLabel(phase) {
+  const key = 'maintenance.phase.' + (phase || 'idle');
+  const label = t(key);
+  return label === key ? (phase || 'idle') : label;
+}
+
+function renderFactoryResetStatus(status) {
+  lastFactoryResetStatus = status || null;
+  const statusEl = document.getElementById('factoryResetStatus');
+  const logEl = document.getElementById('factoryResetLog');
+  const button = document.getElementById('factoryResetBtn');
+  const buttonText = document.getElementById('factoryResetBtnText');
+  if (!statusEl) return;
+
+  const state = getFactoryResetState(status);
+  const phase = status?.phase || 'idle';
+  const tone = getPanelUpdateTone(state);
+  const titleKey = 'maintenance.state.' + state;
+  const title = t(titleKey) === titleKey ? state : t(titleKey);
+  const message = status?.message || (state === 'idle' ? t('maintenance.hint') : '');
+  const updatedAt = status?.updatedAt ? formatBackupTimestamp(status.updatedAt) : '--';
+  const meta = [
+    tf('update.meta', {
+      phase: getFactoryResetPhaseLabel(phase),
+      time: updatedAt,
+    }),
+  ];
+
+  if (status?.backupDir) {
+    meta.push(tf('update.backupDir', { path: status.backupDir }));
+  }
+  if (state === 'failed' && typeof status.exitCode !== 'undefined') {
+    meta.push(tf('update.exitCode', { code: String(status.exitCode) }));
+  }
+  if (status?.managerError) {
+    meta.push(`Manager: ${status.managerError}`);
+  }
+  if (status?.cause) {
+    meta.push(`${t('logs.cause')}: ${status.cause}`);
+  }
+  if (status?.action) {
+    meta.push(`${t('logs.action')}: ${status.action}`);
+  }
+  if (status?.code) {
+    meta.push(`Code: ${status.code}`);
+  }
+
+  statusEl.className = 'update-status ' + tone;
+  statusEl.innerHTML =
+    '<div class="update-status-title">' + escapeHtml(title) + '</div>' +
+    '<div class="update-status-meta">' + escapeHtml(message) + '</div>' +
+    '<div class="update-status-meta">' + escapeHtml(meta.join(' · ')) + '</div>';
+
+  if (logEl) {
+    const logTail = status?.logTail || '';
+    logEl.style.display = logTail ? '' : 'none';
+    logEl.textContent = logTail;
+    if (logTail) {
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  }
+
+  const running = state === 'running';
+  const managerBlocked = status?.managerUnavailable === true || status?.canStart === false;
+  if (button) {
+    button.disabled = running || managerBlocked;
+  }
+  if (buttonText) {
+    buttonText.textContent = running ? t('maintenance.runningButton') : t('maintenance.factoryReset');
+  }
+
+  if (running) {
+    startFactoryResetPolling();
+  } else {
+    stopFactoryResetPolling();
+  }
+}
+
+async function loadFactoryResetStatus(silent) {
+  try {
+    const data = await API.get('/api/maintenance/factory-reset/status');
+    if (!data) return;
+    if (data.error) {
+      const failedStatus = {
+        state: 'unknown',
+        phase: 'status_read_failed',
+        message: formatApiError(data, t('maintenance.statusFail')),
+        updatedAt: new Date().toISOString(),
+        logTail: data.logTail || '',
+        code: data.code || '',
+        cause: data.cause || '',
+        action: data.action || '',
+        managerUnavailable: data.code && String(data.code).startsWith('MANAGER_'),
+        canStart: !(data.code && String(data.code).startsWith('MANAGER_')),
+      };
+      renderFactoryResetStatus(failedStatus);
+      if (!silent) {
+        showToast(formatApiError(data, t('maintenance.statusFail')), 'error', 7000);
+      }
+      return;
+    }
+    renderFactoryResetStatus(data.status || data);
+  } catch (error) {
+    if (!silent) {
+      showToast(t('maintenance.reconnecting'), 'warn', 5000);
+    }
+    startFactoryResetPolling();
+  }
+}
+
+function startFactoryResetPolling() {
+  if (factoryResetPoll) return;
+  factoryResetPoll = setInterval(() => {
+    loadFactoryResetStatus(true);
+  }, FACTORY_RESET_POLL_MS);
+}
+
+function stopFactoryResetPolling() {
+  if (factoryResetPoll) {
+    clearInterval(factoryResetPoll);
+    factoryResetPoll = null;
+  }
+}
+
+async function startFactoryReset() {
+  const typed = prompt(t('maintenance.confirm'));
+  if (typed !== 'RESET') {
+    showToast(t('maintenance.confirmMismatch'), 'warn', 5000);
+    return;
+  }
+
+  const button = document.getElementById('factoryResetBtn');
+  if (button) {
+    button.disabled = true;
+  }
+  showToast(t('maintenance.started'), 'warn', 6000);
+
+  try {
+    const data = await API.post('/api/maintenance/factory-reset', { confirmation: 'RESET' });
+    if (data && data.success) {
+      renderFactoryResetStatus(data.status || data);
+      startFactoryResetPolling();
+      return;
+    }
+
+    showToast(formatApiError(data, t('maintenance.startFail')), 'error', 9000);
+  } catch (error) {
+    showToast(t('maintenance.reconnecting'), 'warn', 6000);
+    startFactoryResetPolling();
+    return;
+  }
+
+  if (button) {
+    button.disabled = false;
+  }
+}
+
 function configChanged() {
   var btn = document.getElementById('saveConfigBtn');
   if (btn) btn.style.display = '';
@@ -2082,9 +2317,11 @@ async function loadMods() {
     API.get('/api/mods/backups'),
   ]);
   if (!data) return;
+  lastModsData = data;
   renderModBackups(backupsData);
 
   const list = document.getElementById('modsList');
+  const customModCount = Array.isArray(data.mods) ? data.mods.filter(mod => mod && mod.isCustom).length : 0;
 
   // Upload section
   var uploadHtml = `
@@ -2096,6 +2333,9 @@ async function loadMods() {
         </button>
         <button class="btn btn-success" type="button" onclick="downloadClientModPack()">
           ${icon('download', 'icon')} <span>${t('mods.clientPack')}</span>
+        </button>
+        <button class="btn btn-danger" type="button" onclick="clearCustomMods()" ${customModCount > 0 ? '' : 'disabled'}>
+          ${icon('trash', 'icon')} <span>${t('mods.clearCustom')}</span>
         </button>
       </div>
       <div class="mod-upload-copy">
@@ -2257,6 +2497,31 @@ async function deleteMod(folder, name) {
   }
 }
 
+async function clearCustomMods() {
+  const customCount = Array.isArray(lastModsData?.mods)
+    ? lastModsData.mods.filter(mod => mod && mod.isCustom).length
+    : 0;
+  const typed = prompt(tf('mods.confirmClearCustom', { count: String(customCount) }));
+  if (typed !== 'DELETE') {
+    showToast(t('mods.confirmClearMismatch'), 'warn', 5000);
+    return;
+  }
+
+  const data = await API.del('/api/mods/custom');
+  if (data && data.success) {
+    if (data.removed && (data.removed.sourceEntries || data.removed.installedFolders)) {
+      showToast(getModClearCustomToast(data), 'success', 8000);
+    } else {
+      showToast(t('mods.clearCustomEmpty'), 'warn', 5000);
+    }
+    loadMods();
+    loadDashboard();
+    return;
+  }
+
+  showToast(formatApiError(data, t('toast.modClearCustomFail')), 'error', 8000);
+}
+
 async function downloadMod(folder, name) {
   var data = await API.download('/api/mods/download/' + encodeURIComponent(folder));
   if (data && data.success) {
@@ -2338,6 +2603,11 @@ function getModDeleteToast(data) {
   }
 
   return appendSentence(t('toast.modDeleteOk'), clientPackText);
+}
+
+function getModClearCustomToast(data) {
+  var clientPackText = appendSentence(getModBackupResultText(data?.backup), getClientPackResultText(data?.clientPack));
+  return appendSentence(t('mods.clearCustomOk'), clientPackText);
 }
 
 function formatClientPackStatus(clientPack) {

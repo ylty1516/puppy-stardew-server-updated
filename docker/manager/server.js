@@ -12,8 +12,12 @@ const PANEL_DATA_DIR = `${PROJECT_DIR}/data/panel`;
 const UPDATE_STATUS_FILE = `${PANEL_DATA_DIR}/update-status.json`;
 const UPDATE_LOG_FILE = `${PANEL_DATA_DIR}/update.log`;
 const UPDATE_RUNNER_FILE = `${PANEL_DATA_DIR}/update-runner.sh`;
+const FACTORY_RESET_STATUS_FILE = `${PANEL_DATA_DIR}/factory-reset-status.json`;
+const FACTORY_RESET_LOG_FILE = `${PANEL_DATA_DIR}/factory-reset.log`;
+const FACTORY_RESET_RUNNER_FILE = `${PANEL_DATA_DIR}/factory-reset-runner.sh`;
 const CHANGELOG_FILE = `${PROJECT_DIR}/CHANGELOG.md`;
 const UPDATE_CONTAINER = process.env.UPDATE_CONTAINER || 'puppy-stardew-panel-updater';
+const FACTORY_RESET_CONTAINER = process.env.FACTORY_RESET_CONTAINER || 'puppy-stardew-factory-reset';
 const UPDATE_IMAGE = process.env.UPDATE_IMAGE || 'puppy-stardew-manager:local';
 const UPDATE_BRANCH = process.env.PUPPY_UPDATE_BRANCH || 'main';
 const UPDATE_QUEUED_TIMEOUT_MS = parseInt(process.env.PUPPY_UPDATE_QUEUED_TIMEOUT_MS || '90000', 10);
@@ -195,6 +199,40 @@ function getUpdaterContainerState() {
   };
 }
 
+function getContainerState(containerName) {
+  const result = spawnSync('docker', [
+    'inspect',
+    '--format',
+    '{{.State.Running}} {{.State.ExitCode}} {{.State.Status}}',
+    containerName,
+  ], {
+    encoding: 'utf8',
+    timeout: 3000,
+  });
+
+  if (result.status !== 0) {
+    return { exists: false, running: false, status: 'missing', exitCode: null, logTail: '' };
+  }
+
+  const [running, exitCode, status] = result.stdout.trim().split(/\s+/);
+  let logTail = '';
+  try {
+    const logs = spawnSync('docker', ['logs', '--tail', '80', containerName], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    logTail = [logs.stdout, logs.stderr].filter(Boolean).join('\n').trim();
+  } catch (error) {}
+
+  return {
+    exists: true,
+    running: running === 'true',
+    status: status || 'unknown',
+    exitCode: Number.isFinite(parseInt(exitCode, 10)) ? parseInt(exitCode, 10) : null,
+    logTail,
+  };
+}
+
 function readUpdateStatus() {
   let status = {
     state: 'idle',
@@ -275,6 +313,72 @@ function writeUpdateStatus(status) {
   ensurePanelDataDir();
   fs.writeFileSync(UPDATE_STATUS_FILE, JSON.stringify({
     logFile: UPDATE_LOG_FILE,
+    ...status,
+    updatedAt: new Date().toISOString(),
+  }, null, 2));
+}
+
+function readFactoryResetStatus() {
+  let status = {
+    state: 'idle',
+    phase: 'idle',
+    message: 'No factory reset has been started yet.',
+    startedAt: '',
+    updatedAt: '',
+    completedAt: '',
+    backupDir: '',
+    logFile: FACTORY_RESET_LOG_FILE,
+    exitCode: 0,
+  };
+
+  try {
+    if (fs.existsSync(FACTORY_RESET_STATUS_FILE)) {
+      status = {
+        ...status,
+        ...JSON.parse(fs.readFileSync(FACTORY_RESET_STATUS_FILE, 'utf8')),
+      };
+    }
+  } catch (error) {
+    status = {
+      ...status,
+      state: 'unknown',
+      phase: 'status_read_failed',
+      message: error.message || 'Failed to read factory reset status.',
+    };
+  }
+
+  const container = getContainerState(FACTORY_RESET_CONTAINER);
+  if (status.state === 'running' && (!container.exists || !container.running)) {
+    status = {
+      ...status,
+      state: 'failed',
+      message: container.exists
+        ? 'The factory reset runner exited before reporting success.'
+        : 'The factory reset runner is missing while the status is still running.',
+      exitCode: container.exitCode || 1,
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+    };
+  }
+
+  return {
+    ...status,
+    running: status.state === 'running',
+    manager: {
+      projectDir: PROJECT_DIR,
+      composeFile: COMPOSE_FILE,
+      resetContainer: FACTORY_RESET_CONTAINER,
+      updateImage: UPDATE_IMAGE,
+      container,
+    },
+    logTail: readTextTail(FACTORY_RESET_LOG_FILE) || (status.state === 'failed' ? (container.logTail || '') : ''),
+  };
+}
+
+function writeFactoryResetStatus(status) {
+  ensurePanelDataDir();
+  fs.writeFileSync(FACTORY_RESET_STATUS_FILE, JSON.stringify({
+    logFile: FACTORY_RESET_LOG_FILE,
     ...status,
     updatedAt: new Date().toISOString(),
   }, null, 2));
@@ -445,6 +549,141 @@ trap - EXIT
 `;
 }
 
+function buildFactoryResetScript() {
+  return `#!/bin/sh
+set -eu
+
+PROJECT_DIR=${shellQuote(PROJECT_DIR)}
+COMPOSE_FILE=${shellQuote(COMPOSE_FILE)}
+STATUS_FILE=${shellQuote(FACTORY_RESET_STATUS_FILE)}
+LOG_FILE=${shellQuote(FACTORY_RESET_LOG_FILE)}
+STARTED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+BACKUP_DIR="$PROJECT_DIR/data/backups/factory-reset-$(date '+%Y%m%d-%H%M%S')"
+LAST_PHASE="starting"
+
+json_escape() {
+  printf '%s' "$1" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'
+}
+
+write_status() {
+  state="$1"
+  phase="$2"
+  message="$3"
+  exit_code="$4"
+  now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  completed=""
+  if [ "$state" != "running" ]; then
+    completed="$now"
+  fi
+  mkdir -p "$(dirname "$STATUS_FILE")"
+  cat > "$STATUS_FILE" <<JSON
+{
+  "state": "$state",
+  "phase": "$phase",
+  "message": "$(json_escape "$message")",
+  "startedAt": "$STARTED_AT",
+  "updatedAt": "$now",
+  "completedAt": "$completed",
+  "backupDir": "$(json_escape "$BACKUP_DIR")",
+  "logFile": "$(json_escape "$LOG_FILE")",
+  "exitCode": $exit_code
+}
+JSON
+}
+
+set_phase() {
+  LAST_PHASE="$1"
+  write_status "running" "$1" "$2" 0
+  printf '\\n[%s] %s\\n' "$(date '+%F %T')" "$2"
+}
+
+on_exit() {
+  code="$?"
+  if [ "$code" -ne 0 ]; then
+    write_status "failed" "$LAST_PHASE" "出厂化重置失败，请查看日志里的准确原因。" "$code"
+  fi
+}
+trap on_exit EXIT
+
+safe_clean_dir() {
+  dir="$1"
+  case "$dir" in
+    "$PROJECT_DIR"/data/saves|"$PROJECT_DIR"/data/game|"$PROJECT_DIR"/data/custom-mods|"$PROJECT_DIR"/data/logs)
+      mkdir -p "$dir"
+      find "$dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      ;;
+    *)
+      echo "Refusing to clean unexpected path: $dir"
+      exit 44
+      ;;
+  esac
+}
+
+backup_path() {
+  rel="$1"
+  name="$2"
+  if [ -e "$PROJECT_DIR/$rel" ]; then
+    tar -czf "$BACKUP_DIR/$name.tar.gz" -C "$PROJECT_DIR" "$rel"
+  fi
+}
+
+mkdir -p "$PROJECT_DIR/data/panel" "$PROJECT_DIR/data/backups"
+: > "$LOG_FILE"
+exec >> "$LOG_FILE" 2>&1
+
+cd "$PROJECT_DIR"
+export PWD="$PROJECT_DIR"
+
+set_phase "backup" "备份存档、上传 Mod 和关键配置"
+mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR" 2>/dev/null || true
+backup_path "data/saves" "saves"
+backup_path "data/custom-mods" "custom-mods"
+if [ -d "$PROJECT_DIR/data/game/Mods" ]; then
+  tar -czf "$BACKUP_DIR/game-mods.tar.gz" -C "$PROJECT_DIR/data/game" "Mods"
+fi
+for file in .env docker-compose.yml data/panel/runtime.env data/panel/auth.json; do
+  if [ -f "$file" ]; then
+    mkdir -p "$BACKUP_DIR/$(dirname "$file")"
+    cp -a "$file" "$BACKUP_DIR/$file"
+  fi
+done
+cat > "$BACKUP_DIR/factory-reset.json" <<JSON
+{
+  "createdAt": "$STARTED_AT",
+  "projectDir": "$(json_escape "$PROJECT_DIR")",
+  "preserved": ["project source", ".env", "data/panel", "data/steam", "data/backups"],
+  "cleared": ["data/saves", "data/game", "data/custom-mods", "data/logs", "data/panel/client-packs", "runtime control files"]
+}
+JSON
+
+set_phase "stop" "停止游戏容器"
+docker compose -f "$COMPOSE_FILE" --project-directory "$PROJECT_DIR" stop stardew-server || true
+docker rm -f puppy-stardew puppy-stardew-init >/dev/null 2>&1 || true
+
+set_phase "reset" "清理游戏运行数据"
+mkdir -p data/saves data/game data/custom-mods data/logs data/backups data/panel data/steam
+safe_clean_dir "$PROJECT_DIR/data/saves"
+safe_clean_dir "$PROJECT_DIR/data/game"
+safe_clean_dir "$PROJECT_DIR/data/custom-mods"
+safe_clean_dir "$PROJECT_DIR/data/logs"
+rm -rf "$PROJECT_DIR/data/panel/client-packs"
+rm -f "$PROJECT_DIR/data/panel/game-state.json" \\
+      "$PROJECT_DIR/data/panel/manual-pause.json" \\
+      "$PROJECT_DIR/data/panel/auto-pause.json" \\
+      "$PROJECT_DIR/data/panel/host-command.json" \\
+      "$PROJECT_DIR/data/panel/status.json"
+mkdir -p data/saves data/game data/custom-mods data/logs data/backups data/panel data/steam
+chown -R 1000:1000 data/saves data/game data/custom-mods data/logs data/panel 2>/dev/null || true
+
+set_phase "restart" "重新创建并启动服务器"
+docker compose -f "$COMPOSE_FILE" --project-directory "$PROJECT_DIR" up -d --build --force-recreate stardew-server
+
+write_status "succeeded" "complete" "出厂化重置完成，服务器正在按首次启动流程重新初始化。" 0
+trap - EXIT
+`;
+}
+
 function startUpdate(options = {}) {
   const current = readUpdateStatus();
   if (current.running) {
@@ -452,6 +691,10 @@ function startUpdate(options = {}) {
       alreadyRunning: true,
       status: current,
     };
+  }
+  const resetStatus = readFactoryResetStatus();
+  if (resetStatus.running) {
+    throw new Error('Factory reset is already running. Wait for it to finish before updating.');
   }
 
   ensurePanelDataDir();
@@ -512,6 +755,80 @@ function startUpdate(options = {}) {
     alreadyRunning: false,
     containerId: run.stdout.trim(),
     status: readUpdateStatus(),
+  };
+}
+
+function startFactoryReset() {
+  const current = readFactoryResetStatus();
+  if (current.running) {
+    return {
+      alreadyRunning: true,
+      status: current,
+    };
+  }
+  const updateStatus = readUpdateStatus();
+  if (updateStatus.running) {
+    throw new Error('Panel update is already running. Wait for it to finish before resetting the game.');
+  }
+
+  ensurePanelDataDir();
+  fs.writeFileSync(FACTORY_RESET_RUNNER_FILE, buildFactoryResetScript(), { mode: 0o700 });
+  try {
+    fs.chmodSync(FACTORY_RESET_RUNNER_FILE, 0o700);
+  } catch (error) {}
+
+  writeFactoryResetStatus({
+    state: 'running',
+    phase: 'queued',
+    message: '出厂化重置任务已提交，正在启动执行容器。',
+    startedAt: new Date().toISOString(),
+    completedAt: '',
+    backupDir: '',
+    exitCode: 0,
+  });
+
+  spawnSync('docker', ['rm', '-f', FACTORY_RESET_CONTAINER], {
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+
+  const run = spawnSync('docker', [
+    'run',
+    '-d',
+    '--name',
+    FACTORY_RESET_CONTAINER,
+    '-v',
+    '/var/run/docker.sock:/var/run/docker.sock',
+    '-v',
+    `${PROJECT_DIR}:${PROJECT_DIR}:rw`,
+    '-w',
+    PROJECT_DIR,
+    '--entrypoint',
+    'sh',
+    UPDATE_IMAGE,
+    FACTORY_RESET_RUNNER_FILE,
+  ], {
+    encoding: 'utf8',
+    timeout: 15000,
+  });
+
+  if (run.error || run.status !== 0) {
+    writeFactoryResetStatus({
+      state: 'failed',
+      phase: 'start_container',
+      message: '启动出厂化重置执行容器失败。',
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      backupDir: '',
+      exitCode: run.status || 1,
+    });
+    throw new Error([run.error && run.error.message, run.stderr, run.stdout].filter(Boolean).join('\n') || 'Failed to start factory reset container');
+  }
+
+  return {
+    alreadyRunning: false,
+    containerId: run.stdout.trim(),
+    status: readFactoryResetStatus(),
   };
 }
 
@@ -617,6 +934,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/factory-reset/status') {
+    sendJson(res, 200, readFactoryResetStatus());
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/changelog') {
     const changelog = readChangelog();
     sendJson(res, changelog.success ? 200 : 404, changelog);
@@ -641,6 +963,34 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 500, {
         error: error.message || 'Failed to start update',
         status: readUpdateStatus(),
+      });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/factory-reset') {
+    try {
+      const body = await readJson(req);
+      if (!body || body.confirmation !== 'RESET') {
+        sendJson(res, 400, {
+          error: 'Factory reset confirmation is required',
+          code: 'FACTORY_RESET_CONFIRMATION_REQUIRED',
+          cause: 'The request did not include confirmation: RESET.',
+          action: 'Type RESET in the panel confirmation prompt before starting factory reset.',
+        });
+        return;
+      }
+
+      const result = startFactoryReset();
+      sendJson(res, result.alreadyRunning ? 200 : 202, {
+        success: true,
+        action: 'factory-reset',
+        ...result,
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        error: error.message || 'Failed to start factory reset',
+        status: readFactoryResetStatus(),
       });
     }
     return;

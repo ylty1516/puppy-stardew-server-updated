@@ -421,6 +421,56 @@ function resolveChildPath(rootDir, childName) {
   return target;
 }
 
+function assertManagedChildPath(rootDir, targetPath, code = 'MOD_INVALID_PATH') {
+  const root = path.resolve(rootDir);
+  const target = path.resolve(targetPath);
+  if (!target.startsWith(root + path.sep)) {
+    throw new AppError('Refusing to modify a path outside the managed mod directory', {
+      status: 400,
+      code,
+      cause: 'A computed mod path escaped the allowed custom or game Mods directory.',
+      action: 'Refresh the page and retry. If this repeats, check for invalid mod metadata files.',
+    });
+  }
+
+  return target;
+}
+
+function getClearCustomModTargets() {
+  const preinstalledFolders = getPreinstalledModFolders();
+  const sourcePaths = [];
+  const gamePaths = [];
+  const sourceEntries = [];
+  const installedFolders = [];
+
+  if (fs.existsSync(CUSTOM_MODS_DIR)) {
+    for (const entry of fs.readdirSync(CUSTOM_MODS_DIR, { withFileTypes: true })) {
+      const target = assertManagedChildPath(CUSTOM_MODS_DIR, path.join(CUSTOM_MODS_DIR, entry.name), 'CUSTOM_MOD_INVALID_PATH');
+      sourcePaths.push(target);
+      sourceEntries.push(entry.name);
+    }
+  }
+
+  if (fs.existsSync(GAME_MODS_DIR)) {
+    for (const entry of fs.readdirSync(GAME_MODS_DIR, { withFileTypes: true })) {
+      if (!entry.isDirectory() || preinstalledFolders.has(entry.name)) {
+        continue;
+      }
+
+      const target = assertManagedChildPath(GAME_MODS_DIR, path.join(GAME_MODS_DIR, entry.name), 'GAME_MOD_INVALID_PATH');
+      gamePaths.push(target);
+      installedFolders.push(entry.name);
+    }
+  }
+
+  return {
+    sourcePaths,
+    gamePaths,
+    sourceEntries,
+    installedFolders,
+  };
+}
+
 function getModDownloadSource(folder, options = {}) {
   const safeFolder = path.basename(folder || '');
   if (!safeFolder) {
@@ -1463,12 +1513,74 @@ function deleteMod(req, res) {
   }
 }
 
+/**
+ * DELETE /api/mods/custom
+ * Remove every uploaded/custom mod while preserving bundled server mods.
+ */
+function clearCustomMods(req, res) {
+  try {
+    ensureDir(CUSTOM_MODS_DIR);
+    ensureDir(GAME_MODS_DIR);
+
+    const targets = getClearCustomModTargets();
+    const allTargets = [...targets.sourcePaths, ...targets.gamePaths];
+    const existingTargets = allTargets.filter(target => fs.existsSync(target));
+
+    if (existingTargets.length === 0) {
+      const clientPack = safeRebuildClientPack('clear-custom-empty');
+      invalidatePublicModManifestCache();
+      return res.json({
+        success: true,
+        message: 'No uploaded custom mods were found.',
+        needsRestart: false,
+        removed: {
+          sourceEntries: 0,
+          installedFolders: 0,
+          names: [],
+        },
+        backup: null,
+        clientPack,
+      });
+    }
+
+    const preChangeBackup = createModBackup('pre-clear-custom');
+    for (const target of existingTargets) {
+      fs.rmSync(target, { recursive: true, force: true });
+    }
+
+    const clientPack = safeRebuildClientPack('clear-custom');
+    invalidatePublicModManifestCache();
+    res.json({
+      success: true,
+      message: 'All uploaded custom mods were removed.',
+      needsRestart: true,
+      removed: {
+        sourceEntries: targets.sourceEntries.length,
+        installedFolders: targets.installedFolders.length,
+        names: [...new Set([...targets.sourceEntries, ...targets.installedFolders])],
+      },
+      backup: preChangeBackup,
+      clientPack,
+    });
+  } catch (e) {
+    return sendError(res, req, e, {
+      status: e.status || 500,
+      code: e.code || 'MOD_CLEAR_CUSTOM_FAILED',
+      message: 'Failed to clear uploaded mods',
+      cause: e.cause || 'The panel could not remove all uploaded custom mod files.',
+      details: e.details || e.message,
+      action: e.action || 'Check custom mod and game Mods directory permissions, then retry.',
+    });
+  }
+}
+
 module.exports = {
   getMods,
   getPublicModManifest,
   getPublicMods,
   uploadMod,
   deleteMod,
+  clearCustomMods,
   downloadClientPack,
   downloadMod,
   downloadPublicMod,

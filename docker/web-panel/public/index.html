@@ -633,6 +633,29 @@
               <pre id="panelUpdateLog" class="update-log" style="display:none"></pre>
             </div>
           </div>
+          <div class="card card-spaced danger-zone">
+            <div class="section-header">
+              <h3 data-i18n="maintenance.title">Danger Zone</h3>
+              <div class="section-actions">
+                <button class="btn btn-danger btn-sm" id="factoryResetBtn" type="button" onclick="startFactoryReset()">
+                  <svg class="icon"><use href="#icon-trash"></use></svg>
+                  <span id="factoryResetBtnText" data-i18n="maintenance.factoryReset">Factory Reset Game</span>
+                </button>
+                <button class="btn btn-sm btn-muted" type="button" onclick="loadFactoryResetStatus()">
+                  <svg class="icon"><use href="#icon-refresh"></use></svg>
+                  <span data-i18n="maintenance.refresh">Refresh Status</span>
+                </button>
+              </div>
+            </div>
+            <div class="danger-zone-copy" data-i18n="maintenance.factoryResetHint">Resets saves, game files, uploaded mods, logs, and runtime control files while preserving panel login, Steam cache, backups, and project code.</div>
+            <div class="update-panel">
+              <div id="factoryResetStatus" class="update-status idle">
+                <div class="update-status-title" data-i18n="maintenance.idle">No factory reset running</div>
+                <div class="update-status-meta" data-i18n="maintenance.hint">A reset creates a safety backup, stops the game container, clears runtime data, and recreates the server.</div>
+              </div>
+              <pre id="factoryResetLog" class="update-log" style="display:none"></pre>
+            </div>
+          </div>
           <div class="card card-spaced">
             <div class="section-header">
               <h3 data-i18n="config.password">Change Panel Password</h3>
