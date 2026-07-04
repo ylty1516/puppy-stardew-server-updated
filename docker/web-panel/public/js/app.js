@@ -122,7 +122,9 @@ const translations = {
     'dash.viewLogs': '查看日志', 'dash.restart': '重启服务器', 'dash.backup': '立即备份', 'dash.updatePanel': '更新面板',
     'dash.pauseTime': '暂停时间', 'dash.resumeTime': '恢复时间',
     'dash.enableAutoPause': '开启自动暂停', 'dash.disableAutoPause': '关闭自动暂停',
+    'dash.expansionInit': '大型Mod初始化', 'dash.hideHost': '重新隐藏房主',
     'dash.pauseHint': '手动暂停会冻结游戏内时间，所有在线玩家都会停在当前时间，直到你恢复。',
+    'dash.expansionHint': '大型内容 Mod 初始剧情不触发时，先开启大型Mod初始化，用 VNC 让服务器房主完成一次前置/介绍剧情，再重新隐藏房主。',
     'dash.pauseActive': '手动暂停已开启，游戏内时间会保持冻结。',
     'dash.autoPauseActive': '自动空服暂停已开启，无人在线超过延迟后会冻结游戏时间。',
     'dash.autoPauseInactive': '自动空服暂停已关闭，无人在线时游戏时间也会继续流动。',
@@ -141,6 +143,7 @@ const translations = {
     'diag.status.ok': '正常',
     'diag.status.warn': '警告',
     'diag.status.error': '错误',
+    'diag.largeMods': '大型内容 Mod 剧情兼容',
     'term.title': 'SMAPI 控制台（非系统终端）', 'term.hint': '点击“连接”后会附着到正在运行的 SMAPI 进程。这里只能输入 SMAPI 命令或 Steam Guard 验证码，不能执行 Linux 命令。',
     'term.connect': '连接', 'term.disconnect': '断开', 'term.send': '发送', 'term.input': '输入 SMAPI 命令或 Steam Guard 验证码...',
     'players.title': '在线玩家', 'players.loading': '加载中...',
@@ -226,6 +229,7 @@ const translations = {
     'update.state.unknown': '状态未知',
     'update.phase.idle': '空闲',
     'update.phase.queued': '排队中',
+    'update.phase.queued_timeout': '排队超时',
     'update.phase.backup': '备份中',
     'update.phase.download': '拉取代码',
     'update.phase.prepare': '准备配置',
@@ -268,6 +272,10 @@ const translations = {
     'toast.autoPauseOn': '已开启自动空服暂停。',
     'toast.autoPauseOff': '已关闭自动空服暂停，若此前由自动暂停冻结会自动恢复。',
     'toast.autoPauseFail': '切换自动暂停失败',
+    'toast.expansionInitOk': '已显示服务器房主并关闭自动跳过剧情。请用 VNC 完成大型 Mod 初始剧情。',
+    'toast.expansionInitFail': '大型Mod初始化启动失败',
+    'toast.hideHostOk': '已发送重新隐藏房主命令。',
+    'toast.hideHostFail': '重新隐藏房主失败',
     'toast.pwdOk': '密码修改成功', 'toast.pwdFail': '密码修改失败',
     'toast.configOk': '配置已保存，重启 Docker 容器后生效', 'toast.configFail': '配置保存失败',
     'toast.creatingBackup': '正在创建备份...', 'toast.passwordFields': '请填写两个密码字段',
@@ -334,7 +342,9 @@ const translations = {
     'dash.viewLogs': 'View Logs', 'dash.restart': 'Restart Server', 'dash.backup': 'Backup Now', 'dash.updatePanel': 'Update Panel',
     'dash.pauseTime': 'Pause Time', 'dash.resumeTime': 'Resume Time',
     'dash.enableAutoPause': 'Enable Auto Pause', 'dash.disableAutoPause': 'Disable Auto Pause',
+    'dash.expansionInit': 'Large Mod Init', 'dash.hideHost': 'Hide Host',
     'dash.pauseHint': 'Manual pause freezes in-game time for all connected players until you resume it.',
+    'dash.expansionHint': 'If a large content mod intro does not trigger, start large mod init, use VNC to complete the host-side intro event, then hide the host again.',
     'dash.pauseActive': 'Manual pause is enabled. In-game time will stay frozen.',
     'dash.autoPauseActive': 'Automatic empty-server pause is enabled. Time freezes after the empty delay.',
     'dash.autoPauseInactive': 'Automatic empty-server pause is disabled. Time keeps moving when empty.',
@@ -353,6 +363,7 @@ const translations = {
     'diag.status.ok': 'OK',
     'diag.status.warn': 'Warn',
     'diag.status.error': 'Error',
+    'diag.largeMods': 'Large Content Mod Events',
     'term.title': 'SMAPI Console (Not a System Shell)', 'term.hint': 'Click "Connect" to attach to the running SMAPI process. This accepts SMAPI commands and Steam Guard codes, not Linux shell commands.',
     'term.connect': 'Connect', 'term.disconnect': 'Disconnect', 'term.send': 'Send', 'term.input': 'Type a SMAPI command or Steam Guard code...',
     'players.title': 'Online Players', 'players.loading': 'Loading...',
@@ -438,6 +449,7 @@ const translations = {
     'update.state.unknown': 'Unknown',
     'update.phase.idle': 'Idle',
     'update.phase.queued': 'Queued',
+    'update.phase.queued_timeout': 'Queued timeout',
     'update.phase.backup': 'Backing up',
     'update.phase.download': 'Pulling code',
     'update.phase.prepare': 'Preparing config',
@@ -480,6 +492,10 @@ const translations = {
     'toast.autoPauseOn': 'Automatic empty-server pause enabled.',
     'toast.autoPauseOff': 'Automatic empty-server pause disabled. An auto-held pause will be released.',
     'toast.autoPauseFail': 'Failed to toggle auto pause',
+    'toast.expansionInitOk': 'Host is visible and automatic event skipping is disabled. Use VNC to complete the large mod intro.',
+    'toast.expansionInitFail': 'Failed to start large mod initialization',
+    'toast.hideHostOk': 'Hide-host command sent.',
+    'toast.hideHostFail': 'Failed to hide host',
     'toast.pwdOk': 'Password changed', 'toast.pwdFail': 'Password change failed',
     'toast.configOk': 'Config saved. Restart the Docker container to apply.', 'toast.configFail': 'Failed to save config',
     'toast.creatingBackup': 'Creating backup...', 'toast.passwordFields': 'Please fill in both password fields',
@@ -2407,6 +2423,42 @@ async function toggleAutoPause() {
   } else {
     showToast(formatApiError(data, t('toast.autoPauseFail')), 'error', 7000);
     updateAutoPauseUI(lastStatusData?.autoPause || { enabled: current });
+  }
+}
+
+async function startExpansionModInit() {
+  const button = document.getElementById('expansionInitBtn');
+  if (button) button.disabled = true;
+
+  try {
+    const data = await API.post('/api/host/expansion-init/start', {});
+    if (data && data.success) {
+      showToast(t('toast.expansionInitOk'), 'success', 7000);
+      loadDashboard();
+      return;
+    }
+
+    showToast(formatApiError(data, t('toast.expansionInitFail')), 'error', 8000);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function finishExpansionModInit() {
+  const button = document.getElementById('hideHostBtn');
+  if (button) button.disabled = true;
+
+  try {
+    const data = await API.post('/api/host/expansion-init/finish', {});
+    if (data && data.success) {
+      showToast(t('toast.hideHostOk'), 'success');
+      loadDashboard();
+      return;
+    }
+
+    showToast(formatApiError(data, t('toast.hideHostFail')), 'error', 8000);
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 

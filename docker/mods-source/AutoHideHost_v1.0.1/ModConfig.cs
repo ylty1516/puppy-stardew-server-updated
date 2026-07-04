@@ -31,5 +31,6 @@ namespace AutoHideHost
         public int GameStateWriteTicks { get; set; } = 60;
         public bool EnableFestivalProxyTrigger { get; set; } = true;
         public int FestivalProxyCooldownSeconds { get; set; } = 20;
+        public bool AutoSkipSkippableEvents { get; set; } = false;
     }
 }

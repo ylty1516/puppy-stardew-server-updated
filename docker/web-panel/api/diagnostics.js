@@ -21,6 +21,243 @@ const HEALTH_COMMAND_TIMEOUT_MS = Number.isFinite(configuredHealthCommandTimeout
   ? configuredHealthCommandTimeoutMs
   : 1500;
 
+const KNOWN_LARGE_CONTENT_MOD_PATTERNS = [
+  { key: 'ridgeside', label: 'Ridgeside Village', patterns: ['ridgeside', 'rafseazz.ridgeside'] },
+  { key: 'sve', label: 'Stardew Valley Expanded', patterns: ['stardew valley expanded', 'stardewvalleyexpanded', 'flashshifter.stardewvalleyexpanded'] },
+  { key: 'eastscarp', label: 'East Scarp', patterns: ['east scarp', 'eastscarp'] },
+  { key: 'downtown_zuzu', label: 'Downtown Zuzu', patterns: ['downtown zuzu', 'downtownzuzu'] },
+  { key: 'boarding_house', label: 'Boarding House', patterns: ['boarding house', 'boardinghouse'] },
+  { key: 'adventurers_guild_expanded', label: 'Adventurer Guild Expanded', patterns: ['adventurer guild expanded', 'adventurers guild expanded', 'adventurerguildexpanded'] },
+];
+
+function normalizeId(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function readManifestFromDir(modDir, fallbackName = '') {
+  const manifestPath = path.join(modDir, 'manifest.json');
+  if (!fs.existsSync(manifestPath)) {
+    return null;
+  }
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    const dependencies = Array.isArray(manifest.Dependencies)
+      ? manifest.Dependencies
+        .filter(dep => dep && dep.IsRequired !== false && dep.UniqueID)
+        .map(dep => String(dep.UniqueID).trim())
+        .filter(Boolean)
+      : [];
+    const contentPackFor = manifest.ContentPackFor && manifest.ContentPackFor.UniqueID
+      ? String(manifest.ContentPackFor.UniqueID).trim()
+      : '';
+    const requiredDependencies = [...dependencies];
+    if (contentPackFor) {
+      requiredDependencies.push(contentPackFor);
+    }
+
+    return {
+      folder: fallbackName || path.basename(modDir),
+      id: manifest.UniqueID || fallbackName || path.basename(modDir),
+      name: manifest.Name || fallbackName || path.basename(modDir),
+      version: manifest.Version || 'unknown',
+      description: manifest.Description || '',
+      dependencies: Array.from(new Set(requiredDependencies)),
+      contentPackFor,
+      path: modDir,
+    };
+  } catch (error) {
+    return {
+      folder: fallbackName || path.basename(modDir),
+      id: fallbackName || path.basename(modDir),
+      name: fallbackName || path.basename(modDir),
+      version: 'unknown',
+      description: '',
+      dependencies: [],
+      contentPackFor: '',
+      path: modDir,
+      error: error.message,
+    };
+  }
+}
+
+function scanInstalledModManifests() {
+  const modsDir = path.join(config.GAME_DIR, 'Mods');
+  if (!fs.existsSync(modsDir)) {
+    return {
+      modsDir,
+      manifests: [],
+      installedIds: new Set(),
+      missingDir: true,
+    };
+  }
+
+  const manifests = [];
+  for (const entry of fs.readdirSync(modsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const manifest = readManifestFromDir(path.join(modsDir, entry.name), entry.name);
+    if (manifest) {
+      manifests.push(manifest);
+    }
+  }
+
+  const installedIds = new Set();
+  for (const manifest of manifests) {
+    installedIds.add(normalizeId(manifest.id));
+    installedIds.add(normalizeId(manifest.name));
+    installedIds.add(normalizeId(manifest.folder));
+  }
+
+  return {
+    modsDir,
+    manifests,
+    installedIds,
+    missingDir: false,
+  };
+}
+
+function matchLargeContentMod(manifest) {
+  const haystack = [
+    manifest.id,
+    manifest.name,
+    manifest.folder,
+    manifest.description,
+  ].map(normalizeId).join(' ');
+
+  return KNOWN_LARGE_CONTENT_MOD_PATTERNS.find(item =>
+    item.patterns.some(pattern => haystack.includes(pattern))
+  ) || null;
+}
+
+function buildLargeContentModCheck(status) {
+  const scan = scanInstalledModManifests();
+  if (scan.missingDir) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `${scan.modsDir} does not exist, so large content mods cannot be inspected yet.`,
+      action: 'Start the server once or check the game directory mount.',
+    };
+  }
+
+  const largeMods = scan.manifests
+    .map(manifest => ({ manifest, match: matchLargeContentMod(manifest) }))
+    .filter(item => item.match);
+
+  if (largeMods.length === 0) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'ok',
+      detail: 'No known large content mod was detected in the game Mods directory.',
+      action: '',
+    };
+  }
+
+  const missingDependencies = [];
+  for (const item of largeMods) {
+    for (const dependency of item.manifest.dependencies) {
+      if (!scan.installedIds.has(normalizeId(dependency))) {
+        missingDependencies.push(`${item.match.label}: ${dependency}`);
+      }
+    }
+  }
+
+  const gameState = status.gameState || {};
+  const expansion = gameState.expansionModCompatibility || {};
+  const hostHidden = status.modRuntime?.hostHidden === true || gameState.hostHidden === true;
+  const manualHostVisible = expansion.manualHostVisible === true;
+  const autoSkipEnabled = expansion.autoSkipSkippableEvents === true;
+  const hasExpansionBridge = typeof expansion.autoSkipSkippableEvents === 'boolean';
+  const activeMenu = typeof gameState.activeMenu === 'string' ? gameState.activeMenu : '';
+  const currentEvent = gameState.currentEvent && typeof gameState.currentEvent === 'object'
+    ? gameState.currentEvent
+    : null;
+  const modNames = largeMods.map(item => `${item.match.label} ${item.manifest.version}`.trim()).join(', ');
+
+  if (missingDependencies.length > 0) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'error',
+      detail: `Detected ${modNames}. Missing required dependency/dependencies: ${missingDependencies.join('; ')}.`,
+      action: 'Install the missing dependency mods on both the server and every player client, then restart the server.',
+    };
+  }
+
+  if (!status.gameRunning || !gameState.available || gameState.stale) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}, but the live SMAPI state bridge is not fresh enough to confirm host event state.`,
+      action: 'Start the server and wait for AutoHideHost v1.2.9+ to write a fresh game-state.json, then refresh diagnostics.',
+    };
+  }
+
+  if (!hasExpansionBridge) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'error',
+      detail: `Detected ${modNames}, but AutoHideHost did not report the large-mod compatibility state.`,
+      action: 'Update AutoHideHost to v1.2.9 or newer, rebuild/restart the container, then run diagnostics again.',
+    };
+  }
+
+  if (autoSkipEnabled) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'error',
+      detail: `Detected ${modNames}. AutoHideHost is still configured to auto-skip skippable events, which can skip large mod intro/unlock events.`,
+      action: 'Use the Large Mod Init button or run "autohide_expansion_mode start" in SMAPI to disable auto event skipping.',
+    };
+  }
+
+  if (currentEvent) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}. The host is currently in event ${currentEvent.id || 'unknown'}${currentEvent.skippable ? ' (skippable)' : ''}.`,
+      action: 'Use VNC to complete the host-side event. Do not auto-skip large mod intro or unlock events unless you are sure it is safe.',
+    };
+  }
+
+  if (activeMenu) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}. The host has an active menu: ${activeMenu}.`,
+      action: 'Use VNC to close/advance the host menu if players cannot trigger the expected large mod event.',
+    };
+  }
+
+  if (hostHidden && !manualHostVisible) {
+    return {
+      id: 'large_content_mod_events',
+      label: 'Large content mod event compatibility',
+      status: 'warn',
+      detail: `Detected ${modNames}. The host is hidden, so host-only intro/unlock events may be waiting on the server host.`,
+      action: 'Click Large Mod Init, use VNC to complete the host-side intro/unlock once, then click Hide Host.',
+    };
+  }
+
+  return {
+    id: 'large_content_mod_events',
+    label: 'Large content mod event compatibility',
+    status: 'ok',
+    detail: `Detected ${modNames}. Required dependencies are installed and AutoHideHost is not auto-skipping events.`,
+    action: manualHostVisible ? 'After finishing host-side initialization through VNC, click Hide Host.' : '',
+  };
+}
+
 function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: 'utf-8',
@@ -156,6 +393,8 @@ function buildHealth(req = null) {
     detail: status.joinability?.label || status.joinability?.reason || 'Unknown',
     action: status.joinability?.joinable ? '' : (status.joinability?.action || 'Check SMAPI logs and host state.'),
   });
+
+  checks.push(buildLargeContentModCheck(status));
 
   if (logDiagnostics.issues.length > 0) {
     const hasError = logDiagnostics.issues.some(issue => issue.severity === 'error');

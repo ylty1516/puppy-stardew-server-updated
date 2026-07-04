@@ -13,6 +13,7 @@ const { AppError, sendError } = require('../errors');
 const UPDATE_STATUS_FILE = path.join(config.DATA_DIR, 'update-status.json');
 const UPDATE_LOG_FILE = path.join(config.DATA_DIR, 'update.log');
 const MANAGER_TIMEOUT_MS = 8000;
+const UPDATE_QUEUED_TIMEOUT_MS = parseInt(process.env.PUPPY_UPDATE_QUEUED_TIMEOUT_MS || '90000', 10);
 
 function readTextTail(filePath, maxBytes = 32000) {
   try {
@@ -60,6 +61,24 @@ function readLocalStatus() {
       phase: 'status_read_failed',
       message: error.message || 'Failed to read update status.',
     };
+  }
+
+  if (status.state === 'running' && status.phase === 'queued') {
+    const lastUpdateMs = Date.parse(status.updatedAt || status.startedAt || '');
+    const queuedTimeoutMs = Number.isFinite(UPDATE_QUEUED_TIMEOUT_MS) && UPDATE_QUEUED_TIMEOUT_MS > 0
+      ? UPDATE_QUEUED_TIMEOUT_MS
+      : 90000;
+    if (Number.isFinite(lastUpdateMs) && Date.now() - lastUpdateMs > queuedTimeoutMs) {
+      status = {
+        ...status,
+        state: 'failed',
+        phase: 'queued_timeout',
+        message: 'Updater container stayed queued for too long. The manager or Docker runner did not advance to execution.',
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        exitCode: status.exitCode || 124,
+      };
+    }
   }
 
   return {

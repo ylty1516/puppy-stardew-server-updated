@@ -21,5 +21,6 @@
   "GameStateFile": "/home/steam/web-panel/data/game-state.json",
   "GameStateWriteTicks": 60,
   "EnableFestivalProxyTrigger": true,
-  "FestivalProxyCooldownSeconds": 20
+  "FestivalProxyCooldownSeconds": 20,
+  "AutoSkipSkippableEvents": false
 }

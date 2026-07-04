@@ -129,6 +129,9 @@ app.get('/api/game/pause', auth.verifyMiddleware, statusAPI.getManualPause);
 app.post('/api/game/pause', auth.verifyMiddleware, statusAPI.setManualPause);
 app.get('/api/game/auto-pause', auth.verifyMiddleware, statusAPI.getAutoPause);
 app.post('/api/game/auto-pause', auth.verifyMiddleware, statusAPI.setAutoPause);
+const hostAPI = require('./api/host');
+app.post('/api/host/expansion-init/start', auth.verifyMiddleware, hostAPI.startExpansionInit);
+app.post('/api/host/expansion-init/finish', auth.verifyMiddleware, hostAPI.finishExpansionInit);
 
 // Panel update API
 const updateAPI = require('./api/update');

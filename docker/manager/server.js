@@ -16,6 +16,7 @@ const CHANGELOG_FILE = `${PROJECT_DIR}/CHANGELOG.md`;
 const UPDATE_CONTAINER = process.env.UPDATE_CONTAINER || 'puppy-stardew-panel-updater';
 const UPDATE_IMAGE = process.env.UPDATE_IMAGE || 'puppy-stardew-manager:local';
 const UPDATE_BRANCH = process.env.PUPPY_UPDATE_BRANCH || 'main';
+const UPDATE_QUEUED_TIMEOUT_MS = parseInt(process.env.PUPPY_UPDATE_QUEUED_TIMEOUT_MS || '90000', 10);
 const DIRECT_SOURCE_ARCHIVE_URL = 'https://github.com/ylty1516/puppy-stardew-server-updated/archive/refs/heads/main.tar.gz';
 const GITHUB_PROXY_PREFIX = process.env.PUPPY_GITHUB_PROXY_PREFIX || 'https://gh.sixyin.com/';
 const ALLOWED_SERVICES = new Set(['stardew-server']);
@@ -176,11 +177,21 @@ function getUpdaterContainerState() {
   }
 
   const [running, exitCode, status] = result.stdout.trim().split(/\s+/);
+  let logTail = '';
+  try {
+    const logs = spawnSync('docker', ['logs', '--tail', '80', UPDATE_CONTAINER], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    logTail = [logs.stdout, logs.stderr].filter(Boolean).join('\n').trim();
+  } catch (error) {}
+
   return {
     exists: true,
     running: running === 'true',
     status: status || 'unknown',
     exitCode: Number.isFinite(parseInt(exitCode, 10)) ? parseInt(exitCode, 10) : null,
+    logTail,
   };
 }
 
@@ -227,6 +238,25 @@ function readUpdateStatus() {
     };
   }
 
+  if (status.state === 'running' && status.phase === 'queued') {
+    const lastUpdateMs = Date.parse(status.updatedAt || status.startedAt || '');
+    const queuedTimeoutMs = Number.isFinite(UPDATE_QUEUED_TIMEOUT_MS) && UPDATE_QUEUED_TIMEOUT_MS > 0
+      ? UPDATE_QUEUED_TIMEOUT_MS
+      : 90000;
+    if (Number.isFinite(lastUpdateMs) && Date.now() - lastUpdateMs > queuedTimeoutMs) {
+      status = {
+        ...status,
+        state: 'failed',
+        phase: 'queued_timeout',
+        message: 'Updater 容器启动后没有进入执行阶段，已判定为失败。请查看日志里的准确原因。',
+        exitCode: container.exitCode || 124,
+        updatedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+    }
+  }
+
+  const updateLogTail = readTextTail(UPDATE_LOG_FILE) || (status.state === 'failed' ? (container.logTail || '') : '');
   return {
     ...status,
     running: status.state === 'running',
@@ -237,7 +267,7 @@ function readUpdateStatus() {
       updateImage: UPDATE_IMAGE,
       container,
     },
-    logTail: readTextTail(UPDATE_LOG_FILE),
+    logTail: updateLogTail,
   };
 }
 
@@ -456,8 +486,9 @@ function startUpdate(options = {}) {
     `${PROJECT_DIR}:${PROJECT_DIR}:rw`,
     '-w',
     PROJECT_DIR,
-    UPDATE_IMAGE,
+    '--entrypoint',
     'sh',
+    UPDATE_IMAGE,
     UPDATE_RUNNER_FILE,
   ], {
     encoding: 'utf8',

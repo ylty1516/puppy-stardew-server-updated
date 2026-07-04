@@ -455,8 +455,17 @@
                 <svg class="icon"><use href="#icon-clock"></use></svg>
                 <span id="autoPauseBtnText" data-i18n="dash.disableAutoPause">Disable Auto Pause</span>
               </button>
+              <button class="btn btn-muted" id="expansionInitBtn" type="button" onclick="startExpansionModInit()">
+                <svg class="icon"><use href="#icon-mods"></use></svg>
+                <span data-i18n="dash.expansionInit">Large Mod Init</span>
+              </button>
+              <button class="btn btn-muted" id="hideHostBtn" type="button" onclick="finishExpansionModInit()">
+                <svg class="icon"><use href="#icon-player"></use></svg>
+                <span data-i18n="dash.hideHost">Hide Host</span>
+              </button>
             </div>
             <div id="manualPauseNote" class="manual-pause-note" data-i18n="dash.pauseHint">Manual pause freezes in-game time for all connected players until you resume it.</div>
+            <div class="manual-pause-note" data-i18n="dash.expansionHint">If a large content mod intro does not trigger, start large mod init, use VNC to complete the host-side intro, then hide the host again.</div>
             <div id="dashboardBackupStatus" class="backup-status" style="display:none"></div>
           </div>
         </section>

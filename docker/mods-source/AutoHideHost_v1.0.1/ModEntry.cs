@@ -65,6 +65,7 @@ namespace AutoHideHost
         private string lastFestivalProxyBy = "";
         private string lastFestivalProxyFestivalId = "";
         private DateTime? lastFestivalProxyAt = null;
+        private bool manualHostVisible = false;
 
         public override void Entry(IModHelper helper)
         {
@@ -417,7 +418,7 @@ namespace AutoHideHost
 
                 // 3. 自动跳过可跳过的事件
                 // v1.2.0: 添加事件ID去重和冷却时间，防止无限循环
-                if (Game1.CurrentEvent != null && Game1.CurrentEvent.skippable)
+                if (Config.AutoSkipSkippableEvents && Game1.CurrentEvent != null && Game1.CurrentEvent.skippable)
                 {
                     string currentEventId = Game1.CurrentEvent.id;
 
@@ -532,6 +533,7 @@ namespace AutoHideHost
                     break;
             }
             isHostHidden = true;
+            manualHostVisible = false;
         }
 
         private void CheckAndAutoPause()
@@ -1177,6 +1179,12 @@ namespace AutoHideHost
                     $"\"timeoutSeconds\":{Math.Max(3, Config.SingleFarmhandMenuPauseTimeoutSeconds)}," +
                     $"\"clientModId\":{JsonString(ClientPauseReporterModId)}" +
                     "}";
+                string expansionCompatibilityJson = "{" +
+                    $"\"enabled\":{JsonBool(!Config.AutoSkipSkippableEvents)}," +
+                    $"\"autoSkipSkippableEvents\":{JsonBool(Config.AutoSkipSkippableEvents)}," +
+                    $"\"manualHostVisible\":{JsonBool(manualHostVisible)}," +
+                    $"\"recommendation\":{JsonString(Config.AutoSkipSkippableEvents ? "disable_auto_skip_for_large_content_mods" : "compatible")}" +
+                    "}";
 
                 var json = new StringBuilder();
                 json.Append("{\n");
@@ -1204,6 +1212,7 @@ namespace AutoHideHost
                 json.Append($"  \"sleepInProgress\": {JsonBool(isSleepInProgress)},\n");
                 json.Append($"  \"autoPause\": {autoPauseJson},\n");
                 json.Append($"  \"singleFarmhandMenuPause\": {singleFarmhandMenuPauseJson},\n");
+                json.Append($"  \"expansionModCompatibility\": {expansionCompatibilityJson},\n");
                 json.Append($"  \"onlinePlayers\": [{playersJson}],\n");
                 json.Append($"  \"lastAutomation\": {lastAutomationJson}\n");
                 json.Append("}\n");
@@ -1547,6 +1556,9 @@ namespace AutoHideHost
             Game1.warpFarmer("Farm", 64, 15, false);
             Game1.player.temporarilyInvincible = false;
             isHostHidden = false;
+            manualHostVisible = true;
+            guardWindowEnd = null;
+            needRehide = false;
             this.Monitor.Log("房主已显示在农场", LogLevel.Debug);
         }
 
@@ -1559,6 +1571,7 @@ namespace AutoHideHost
             this.Helper.ConsoleCommands.Add("autohide_reload", "重新加载配置", OnCommand_Reload);
             this.Helper.ConsoleCommands.Add("autohide_pause_time", "手动暂停/恢复游戏时间: autohide_pause_time on|off|toggle|status", OnCommand_PauseTime);
             this.Helper.ConsoleCommands.Add("autohide_auto_pause", "自动空服暂停: autohide_auto_pause on|off|status", OnCommand_AutoPause);
+            this.Helper.ConsoleCommands.Add("autohide_expansion_mode", "大型内容 Mod 初始化辅助: autohide_expansion_mode start|finish|status|legacy", OnCommand_ExpansionMode);
         }
 
         private void OnCommand_HideHost(string command, string[] args)
@@ -1612,6 +1625,7 @@ namespace AutoHideHost
                 this.Monitor.Log($"游戏暂停: {Game1.paused}", LogLevel.Info);
             }
             this.Monitor.Log($"隐藏方式: {Config.HideMethod}", LogLevel.Info);
+            this.Monitor.Log($"大型Mod兼容: {!Config.AutoSkipSkippableEvents} (自动跳过剧情={Config.AutoSkipSkippableEvents}, 手动显示房主={manualHostVisible})", LogLevel.Info);
             this.Monitor.Log($"自动暂停: {IsAutoPauseEnabled()} (配置默认={Config.PauseWhenEmpty}, 状态={autoPauseState}, 原因={autoPauseReason}, 延迟={Config.EmptyPauseDelaySeconds}s, 启动保护={Config.AutoPauseStartupGraceSeconds}s, 自动恢复={Config.AutoResumeOnPlayerJoin})", LogLevel.Info);
             if (autoPauseEmptySince.HasValue)
             {
@@ -1663,6 +1677,51 @@ namespace AutoHideHost
             }
 
             this.Monitor.Log("用法: autohide_auto_pause on|off|status", LogLevel.Info);
+        }
+
+        private void OnCommand_ExpansionMode(string command, string[] args)
+        {
+            if (!Context.IsMainPlayer)
+            {
+                this.Monitor.Log("只有房主可以执行此命令", LogLevel.Error);
+                return;
+            }
+
+            string mode = args.Length > 0 ? args[0].ToLowerInvariant() : "status";
+            if (mode == "status")
+            {
+                this.Monitor.Log($"大型Mod兼容模式: {!Config.AutoSkipSkippableEvents}; 自动跳过剧情={Config.AutoSkipSkippableEvents}; 房主隐藏={isHostHidden}; 手动显示房主={manualHostVisible}", LogLevel.Info);
+                this.Monitor.Log("剧情不触发时建议执行: autohide_expansion_mode start，使用 VNC 让房主完成大型 Mod 初始剧情后再执行 autohide_expansion_mode finish。", LogLevel.Info);
+                return;
+            }
+
+            if (mode == "start" || mode == "on" || mode == "enable")
+            {
+                Config.AutoSkipSkippableEvents = false;
+                this.Helper.WriteConfig(Config);
+                ShowHost();
+                this.Monitor.Log("大型Mod初始化模式已开启：已显示房主，并关闭自动跳过剧情。请用 VNC 完成大型 Mod 的初始剧情/解锁流程。", LogLevel.Info);
+                return;
+            }
+
+            if (mode == "finish" || mode == "hide" || mode == "done")
+            {
+                Config.AutoSkipSkippableEvents = false;
+                this.Helper.WriteConfig(Config);
+                HideHost();
+                this.Monitor.Log("大型Mod初始化模式已结束：房主已重新隐藏，自动跳过剧情仍保持关闭以避免影响大型 Mod。", LogLevel.Info);
+                return;
+            }
+
+            if (mode == "legacy")
+            {
+                Config.AutoSkipSkippableEvents = true;
+                this.Helper.WriteConfig(Config);
+                this.Monitor.Log("已切回旧版事件处理：会自动跳过可跳过剧情。大型内容 Mod 不建议使用此模式。", LogLevel.Warn);
+                return;
+            }
+
+            this.Monitor.Log("用法: autohide_expansion_mode start|finish|status|legacy", LogLevel.Info);
         }
 
         private void OnCommand_PauseTime(string command, string[] args)
@@ -2175,6 +2234,12 @@ namespace AutoHideHost
 
             if (!Config.PreventHostFarmWarp || e == null || !e.IsLocalPlayer)
                 return;
+
+            if (manualHostVisible)
+            {
+                LogDebug("[传送监控] 房主处于手动显示/大型Mod初始化模式，跳过自动重新隐藏");
+                return;
+            }
 
             // 记录所有传送（调试用）
             LogDebug($"[传送监控] {e.OldLocation?.Name ?? "null"} → {e.NewLocation?.Name ?? "null"}");

@@ -1,7 +1,7 @@
 {
   "Name": "AutoHideHost",
   "Author": "AI Developer",
-  "Version": "1.2.8",
+  "Version": "1.2.9",
   "Description": "Automatically hides the host player in multiplayer servers, writes a structured game-state bridge for the panel, auto-pauses empty servers safely, pauses for a solo farmhand backpack when the client reporter is installed, avoids unsafe passout dialog handling, lets farmhands proxy-trigger festivals, supports panel-controlled manual time pause, and provides seamless day-night transitions.",
   "UniqueID": "AIdev.AutoHideHost",
   "EntryDll": "AutoHideHost.dll",
