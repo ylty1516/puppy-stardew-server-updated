@@ -242,12 +242,32 @@ function parseEnvFile() {
       const index = trimmed.indexOf('=');
       if (index === -1) continue;
       const key = trimmed.slice(0, index).trim();
-      const value = trimmed.slice(index + 1).trim();
+      const value = parseEnvValue(trimmed.slice(index + 1));
       if (key) env[key] = value;
     }
   }
 
   return env;
+}
+
+function parseEnvValue(rawValue) {
+  const raw = String(rawValue ?? '').trim();
+  if (raw === '') return '';
+
+  if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) {
+    return raw.slice(1, -1).replace(/\\'/g, "'");
+  }
+
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return raw.slice(1, -1)
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
+
+  return raw.replace(/\s+#.*$/, '').trim();
 }
 
 function classifyServer(cpu, memory, workload) {

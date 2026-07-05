@@ -54,13 +54,19 @@ ask_question() {
     echo -e "${CYAN}❓ $1${NC}"
 }
 
+dotenv_quote_value() {
+    escaped="$(printf '%s' "$1" | awk -v sq="'" -v bs='\\' '{ gsub(sq, bs sq); printf "%s", $0 }')"
+    printf "'%s'" "$escaped"
+}
+
 set_env_value() {
     env_key="$1"
     env_value="$2"
     env_file="${3:-.env}"
     env_tmp="${env_file}.tmp.$$"
+    env_encoded="$(dotenv_quote_value "$env_value")"
 
-    PUPPY_ENV_KEY="$env_key" PUPPY_ENV_VALUE="$env_value" awk '
+    PUPPY_ENV_KEY="$env_key" PUPPY_ENV_VALUE="$env_encoded" awk '
         BEGIN {
             key = ENVIRON["PUPPY_ENV_KEY"];
             value = ENVIRON["PUPPY_ENV_VALUE"];
@@ -78,6 +84,42 @@ set_env_value() {
             }
         }
     ' "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file"
+}
+
+json_escape_value() {
+    printf '%s' "$1" | awk '
+        BEGIN { ORS = "" }
+        {
+            gsub(/\\/, "\\\\");
+            gsub(/"/, "\\\"");
+            gsub(/\t/, "\\t");
+            gsub(/\r/, "\\r");
+            if (NR > 1) {
+                printf "\\n";
+            }
+            printf "%s", $0;
+        }
+    '
+}
+
+write_steam_secret() {
+    secret_dir="data/secrets"
+    secret_file="$secret_dir/steam.json"
+    secret_tmp="$secret_file.tmp.$$"
+
+    mkdir -p "$secret_dir" || return 1
+    username_json="$(json_escape_value "$1")"
+    password_json="$(json_escape_value "$2")"
+
+    {
+        printf '{\n'
+        printf '  "username": "%s",\n' "$username_json"
+        printf '  "password": "%s"\n' "$password_json"
+        printf '}\n'
+    } > "$secret_tmp" || return 1
+
+    chmod 600 "$secret_tmp" 2>/dev/null || true
+    mv "$secret_tmp" "$secret_file"
 }
 
 print_compose_failure_help() {
@@ -287,11 +329,14 @@ configure_steam() {
             vnc_password="${vnc_password:0:8}"
         fi
 
-        # 更新 .env 文件。不要用 sed 替换，Steam 密码里的 /、\、& 会破坏 sed 表达式。
-        if set_env_value "STEAM_USERNAME" "$steam_username" .env \
-            && set_env_value "STEAM_PASSWORD" "$steam_password" .env \
+        # Steam 凭据优先写入 JSON secret，避免 .env 里的 $, #, 空格等被 Docker Compose 重新解析。
+        if write_steam_secret "$steam_username" "$steam_password" \
+            && set_env_value "STEAM_USERNAME" "" .env \
+            && set_env_value "STEAM_PASSWORD" "" .env \
+            && set_env_value "STEAM_JSON_SECRET" "/home/steam/secrets/steam.json" .env \
             && set_env_value "VNC_PASSWORD" "$vnc_password" .env; then
             print_success "Steam 配置已保存！"
+            print_info "Steam 账号密码已保存到 data/secrets/steam.json；.env 只保存引用路径和非敏感配置。"
         else
             print_error "写入 .env 失败，请检查当前目录权限。"
             exit 1

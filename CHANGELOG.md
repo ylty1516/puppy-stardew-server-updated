@@ -3,6 +3,8 @@
 ## 2026-07-05 安装脚本与 Docker Hub 超时诊断修复
 ### Bug Fixes
 - 修复一键安装脚本写入 `.env` 时使用 `sed` 导致的特殊字符密码失败问题；Steam 密码里包含 `/`、`\`、`&` 等字符时不再出现 `sed: unterminated 's' command`，失败时也不会误报“配置已保存”。
+- 修复 `.env` 裸写值可能被 Docker Compose 误解析的问题；安装脚本和 Web 面板现在会使用 Compose 安全的单引号格式写入 `.env`，并在读取时正确反解。
+- 一键安装输入的 Steam 账号密码会优先保存到 `data/secrets/steam.json`，`.env` 只保存 `STEAM_JSON_SECRET` 引用路径，避免 `$`、`#`、空格、引号等密码字符影响 Compose 解析。
 - 修复 Docker 构建失败后提示不准确的问题：当服务器访问 `registry-1.docker.io` 超时，会明确提示这是 Docker Hub 基础镜像拉取失败，并给出正确的项目目录和重试命令。
 
 ### Improvements

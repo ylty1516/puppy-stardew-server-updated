@@ -56,13 +56,19 @@ ask_question() {
     echo -e "${CYAN}❓ $1${NC}"
 }
 
+dotenv_quote_value() {
+    escaped="$(printf '%s' "$1" | awk -v sq="'" -v bs='\\' '{ gsub(sq, bs sq); printf "%s", $0 }')"
+    printf "'%s'" "$escaped"
+}
+
 set_env_value() {
     env_key="$1"
     env_value="$2"
     env_file="${3:-.env}"
     env_tmp="${env_file}.tmp.$$"
+    env_encoded="$(dotenv_quote_value "$env_value")"
 
-    PUPPY_ENV_KEY="$env_key" PUPPY_ENV_VALUE="$env_value" awk '
+    PUPPY_ENV_KEY="$env_key" PUPPY_ENV_VALUE="$env_encoded" awk '
         BEGIN {
             key = ENVIRON["PUPPY_ENV_KEY"];
             value = ENVIRON["PUPPY_ENV_VALUE"];
@@ -80,6 +86,42 @@ set_env_value() {
             }
         }
     ' "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file"
+}
+
+json_escape_value() {
+    printf '%s' "$1" | awk '
+        BEGIN { ORS = "" }
+        {
+            gsub(/\\/, "\\\\");
+            gsub(/"/, "\\\"");
+            gsub(/\t/, "\\t");
+            gsub(/\r/, "\\r");
+            if (NR > 1) {
+                printf "\\n";
+            }
+            printf "%s", $0;
+        }
+    '
+}
+
+write_steam_secret() {
+    secret_dir="data/secrets"
+    secret_file="$secret_dir/steam.json"
+    secret_tmp="$secret_file.tmp.$$"
+
+    mkdir -p "$secret_dir" || return 1
+    username_json="$(json_escape_value "$1")"
+    password_json="$(json_escape_value "$2")"
+
+    {
+        printf '{\n'
+        printf '  "username": "%s",\n' "$username_json"
+        printf '  "password": "%s"\n' "$password_json"
+        printf '}\n'
+    } > "$secret_tmp" || return 1
+
+    chmod 600 "$secret_tmp" 2>/dev/null || true
+    mv "$secret_tmp" "$secret_file"
 }
 
 print_compose_failure_help() {
@@ -320,12 +362,15 @@ configure_steam() {
             vnc_password="${vnc_password:0:8}"
         fi
 
-        # Update .env file. Avoid sed substitution because Steam passwords can
-        # contain /, \, or &, which break sed expressions.
-        if set_env_value "STEAM_USERNAME" "$steam_username" .env \
-            && set_env_value "STEAM_PASSWORD" "$steam_password" .env \
+        # Store Steam credentials in a JSON secret first. This avoids Docker
+        # Compose re-parsing $, #, spaces, and other password characters in .env.
+        if write_steam_secret "$steam_username" "$steam_password" \
+            && set_env_value "STEAM_USERNAME" "" .env \
+            && set_env_value "STEAM_PASSWORD" "" .env \
+            && set_env_value "STEAM_JSON_SECRET" "/home/steam/secrets/steam.json" .env \
             && set_env_value "VNC_PASSWORD" "$vnc_password" .env; then
             print_success "Steam credentials configured!"
+            print_info "Steam credentials were saved to data/secrets/steam.json; .env only stores the reference path and non-sensitive settings."
         else
             print_error "Failed to write .env. Check the current directory permissions."
             exit 1

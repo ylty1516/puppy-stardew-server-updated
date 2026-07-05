@@ -124,11 +124,36 @@ function parseEnvFile() {
     if (eqIndex === -1) continue;
 
     const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
+    const value = parseEnvValue(trimmed.slice(eqIndex + 1));
     env[key] = value;
   }
 
   return env;
+}
+
+function parseEnvValue(rawValue) {
+  const raw = String(rawValue ?? '').trim();
+  if (raw === '') return '';
+
+  if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) {
+    return raw.slice(1, -1).replace(/\\'/g, "'");
+  }
+
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return raw.slice(1, -1)
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
+
+  return raw.replace(/\s+#.*$/, '').trim();
+}
+
+function formatEnvValue(value) {
+  const text = String(value ?? '');
+  return `'${text.replace(/'/g, "\\'")}'`;
 }
 
 function findEnvFile() {
@@ -171,7 +196,7 @@ function writeEnvFile(envData) {
     const key = trimmed.slice(0, eqIndex).trim();
     if (Object.prototype.hasOwnProperty.call(envData, key)) {
       updatedKeys.add(key);
-      return `${key}=${envData[key]}`;
+      return `${key}=${formatEnvValue(envData[key])}`;
     }
 
     return line;
@@ -179,7 +204,7 @@ function writeEnvFile(envData) {
 
   Object.keys(envData).forEach(key => {
     if (!updatedKeys.has(key)) {
-      newLines.push(`${key}=${envData[key]}`);
+      newLines.push(`${key}=${formatEnvValue(envData[key])}`);
     }
   });
 

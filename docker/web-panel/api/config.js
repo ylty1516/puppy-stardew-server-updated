@@ -113,6 +113,31 @@ function listAvailableSaves() {
   }
 }
 
+function parseEnvValue(rawValue) {
+  const raw = String(rawValue ?? '').trim();
+  if (raw === '') return '';
+
+  if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) {
+    return raw.slice(1, -1).replace(/\\'/g, "'");
+  }
+
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return raw.slice(1, -1)
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
+
+  return raw.replace(/\s+#.*$/, '').trim();
+}
+
+function formatEnvValue(value) {
+  const text = String(value ?? '');
+  return `'${text.replace(/'/g, "\\'")}'`;
+}
+
 function parseEnvFile() {
   const env = {};
 
@@ -134,7 +159,7 @@ function parseEnvFile() {
       if (eqIndex === -1) continue;
 
       const key = trimmed.slice(0, eqIndex).trim();
-      const value = trimmed.slice(eqIndex + 1).trim();
+      const value = parseEnvValue(trimmed.slice(eqIndex + 1));
       env[key] = value;
     }
   }
@@ -187,7 +212,7 @@ function writeEnvFile(envData) {
     const seed = parseEnvFile();
     const lines = ['# Managed by Puppy Stardew Server web panel', ''];
     for (const [key, value] of Object.entries(seed)) {
-      lines.push(`${key}=${value}`);
+      lines.push(`${key}=${formatEnvValue(value)}`);
     }
     fs.writeFileSync(envPath, lines.join('\n'), 'utf-8');
   }
@@ -207,7 +232,7 @@ function writeEnvFile(envData) {
     const key = trimmed.slice(0, eqIndex).trim();
     if (key in envData) {
       updatedKeys.add(key);
-      return `${key}=${envData[key]}`;
+      return `${key}=${formatEnvValue(envData[key])}`;
     }
     return line;
   });
@@ -215,7 +240,7 @@ function writeEnvFile(envData) {
   // Append any new keys not in original file
   for (const [key, value] of Object.entries(envData)) {
     if (!updatedKeys.has(key)) {
-      newLines.push(`${key}=${value}`);
+      newLines.push(`${key}=${formatEnvValue(value)}`);
     }
   }
 

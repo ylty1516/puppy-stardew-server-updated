@@ -1166,12 +1166,32 @@ function parseEnvFile(filePath) {
       if (index === -1) {
         continue;
       }
-      env[trimmed.slice(0, index).trim()] = trimmed.slice(index + 1).trim();
+      env[trimmed.slice(0, index).trim()] = parseEnvValue(trimmed.slice(index + 1));
     }
     return env;
   } catch (error) {
     return {};
   }
+}
+
+function parseEnvValue(rawValue) {
+  const raw = String(rawValue ?? '').trim();
+  if (raw === '') return '';
+
+  if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) {
+    return raw.slice(1, -1).replace(/\\'/g, "'");
+  }
+
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) {
+    return raw.slice(1, -1)
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\');
+  }
+
+  return raw.replace(/\s+#.*$/, '').trim();
 }
 
 function buildComposeEnv() {
