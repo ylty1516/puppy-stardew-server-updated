@@ -15,7 +15,10 @@
 
 services:
   stardew-manager:
-    build: ./docker/manager
+    build:
+      context: ./docker/manager
+      args:
+        MANAGER_BASE_IMAGE: ${MANAGER_BASE_IMAGE:-docker:27-cli}
     image: puppy-stardew-manager:local
     container_name: puppy-stardew-manager
     restart: unless-stopped
@@ -31,7 +34,10 @@ services:
   # Init container: fixes permissions before main server starts
   # 初始化容器：在主服务器启动前修复权限
   stardew-init:
-    build: ./docker
+    build:
+      context: ./docker
+      args:
+        SERVER_BASE_IMAGE: ${SERVER_BASE_IMAGE:-ubuntu:22.04}
     image: puppy-stardew-server:local
     container_name: puppy-stardew-init
     user: root
@@ -48,7 +54,10 @@ services:
       - ./data/meta:/home/steam/web-panel/data/meta:rw
 
   stardew-server:
-    build: ./docker
+    build:
+      context: ./docker
+      args:
+        SERVER_BASE_IMAGE: ${SERVER_BASE_IMAGE:-ubuntu:22.04}
     image: puppy-stardew-server:local
     container_name: puppy-stardew
     restart: unless-stopped  # Keep running after Steam Guard

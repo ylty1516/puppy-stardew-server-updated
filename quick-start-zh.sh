@@ -54,6 +54,63 @@ ask_question() {
     echo -e "${CYAN}❓ $1${NC}"
 }
 
+set_env_value() {
+    env_key="$1"
+    env_value="$2"
+    env_file="${3:-.env}"
+    env_tmp="${env_file}.tmp.$$"
+
+    PUPPY_ENV_KEY="$env_key" PUPPY_ENV_VALUE="$env_value" awk '
+        BEGIN {
+            key = ENVIRON["PUPPY_ENV_KEY"];
+            value = ENVIRON["PUPPY_ENV_VALUE"];
+            done = 0;
+        }
+        index($0, key "=") == 1 {
+            print key "=" value;
+            done = 1;
+            next;
+        }
+        { print }
+        END {
+            if (!done) {
+                print key "=" value;
+            }
+        }
+    ' "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file"
+}
+
+print_compose_failure_help() {
+    compose_log="$1"
+    project_path="$(pwd)"
+
+    echo ""
+    print_error "Docker Compose 启动失败，下面是关键排查信息。"
+    echo ""
+
+    if grep -Eiq 'registry-1\.docker\.io|docker\.io/library|i/o timeout|failed to resolve source metadata|failed to do request' "$compose_log"; then
+        print_warning "检测到 Docker Hub 基础镜像拉取超时。"
+        echo "这通常是服务器访问 Docker Hub 太慢或被阻断，不是星露谷服务端逻辑崩溃。"
+        echo ""
+        echo "可以先直接重试："
+        echo -e "  ${CYAN}cd \"$project_path\"${NC}"
+        echo -e "  ${CYAN}$COMPOSE_CMD up -d --build${NC}"
+        echo ""
+        echo "如果你的服务器商提供 Docker Hub 镜像源，可以在 .env 里指定基础镜像后重试："
+        echo -e "  ${CYAN}MANAGER_BASE_IMAGE=你的镜像源域名/docker:27-cli${NC}"
+        echo -e "  ${CYAN}SERVER_BASE_IMAGE=你的镜像源域名/ubuntu:22.04${NC}"
+        echo -e "  ${CYAN}$COMPOSE_CMD up -d --build${NC}"
+        echo ""
+    fi
+
+    echo "查看日志时请务必先进入项目目录，否则会出现 no configuration file provided："
+    echo -e "  ${CYAN}cd \"$project_path\"${NC}"
+    echo -e "  ${CYAN}$COMPOSE_CMD logs --tail=120${NC}"
+    echo ""
+    echo "本次启动失败输出尾部："
+    tail -n 30 "$compose_log" 2>/dev/null || true
+}
+
 # Docker Compose 命令（全局变量，在 check_docker 中设置）
 COMPOSE_CMD=""
 REPO_URL="https://github.com/ylty1516/puppy-stardew-server-updated.git"
@@ -230,12 +287,15 @@ configure_steam() {
             vnc_password="${vnc_password:0:8}"
         fi
 
-        # 更新 .env 文件
-        sed -i "s/^STEAM_USERNAME=.*/STEAM_USERNAME=$steam_username/" .env
-        sed -i "s/^STEAM_PASSWORD=.*/STEAM_PASSWORD=$steam_password/" .env
-        sed -i "s/^VNC_PASSWORD=.*/VNC_PASSWORD=$vnc_password/" .env
-
-        print_success "Steam 配置已保存！"
+        # 更新 .env 文件。不要用 sed 替换，Steam 密码里的 /、\、& 会破坏 sed 表达式。
+        if set_env_value "STEAM_USERNAME" "$steam_username" .env \
+            && set_env_value "STEAM_PASSWORD" "$steam_password" .env \
+            && set_env_value "VNC_PASSWORD" "$vnc_password" .env; then
+            print_success "Steam 配置已保存！"
+        else
+            print_error "写入 .env 失败，请检查当前目录权限。"
+            exit 1
+        fi
     else
         # 手动编辑 .env 文件模式
         echo ""
@@ -303,13 +363,16 @@ start_server() {
 
     echo ""
     print_info "启动服务器..."
-    if $COMPOSE_CMD up -d; then
+    compose_log="$(mktemp)"
+    $COMPOSE_CMD up -d 2>&1 | tee "$compose_log"
+    compose_status=${PIPESTATUS[0]}
+    if [ "$compose_status" -eq 0 ]; then
+        rm -f "$compose_log"
         print_success "服务器已启动！"
     else
         print_error "启动失败！"
-        echo ""
-        echo "查看日志以了解详情:"
-        echo -e "  ${CYAN}$COMPOSE_CMD logs${NC}"
+        print_compose_failure_help "$compose_log"
+        rm -f "$compose_log"
         exit 1
     fi
 

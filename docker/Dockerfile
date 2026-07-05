@@ -6,7 +6,8 @@
 # 此镜像不包含游戏本体文件。
 # 用户需要提供自己的 Steam 账号来下载星露谷物语。
 
-FROM ubuntu:22.04
+ARG SERVER_BASE_IMAGE=ubuntu:22.04
+FROM ${SERVER_BASE_IMAGE}
 
 # Prevent interactive prompts during installation
 # 避免安装过程中的交互提示

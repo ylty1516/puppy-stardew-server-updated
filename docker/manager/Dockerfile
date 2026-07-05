@@ -1,4 +1,5 @@
-FROM docker:27-cli
+ARG MANAGER_BASE_IMAGE=docker:27-cli
+FROM ${MANAGER_BASE_IMAGE}
 
 RUN apk add --no-cache bash curl docker-cli-compose git nodejs rsync tar
 

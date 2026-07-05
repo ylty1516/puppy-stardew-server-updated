@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-05 安装脚本与 Docker Hub 超时诊断修复
+### Bug Fixes
+- 修复一键安装脚本写入 `.env` 时使用 `sed` 导致的特殊字符密码失败问题；Steam 密码里包含 `/`、`\`、`&` 等字符时不再出现 `sed: unterminated 's' command`，失败时也不会误报“配置已保存”。
+- 修复 Docker 构建失败后提示不准确的问题：当服务器访问 `registry-1.docker.io` 超时，会明确提示这是 Docker Hub 基础镜像拉取失败，并给出正确的项目目录和重试命令。
+
+### Improvements
+- `docker:27-cli` 和 `ubuntu:22.04` 基础镜像现在支持通过 `.env` 的 `MANAGER_BASE_IMAGE` / `SERVER_BASE_IMAGE` 覆盖，方便服务器主使用服务商提供的 Docker Hub 镜像源。
+- 安装失败时会提醒先 `cd` 到项目目录再执行 `docker compose logs --tail=120`，避免在 `~` 目录运行后出现 `no configuration file provided` 的误导报错。
+
 ## 2026-07-05 原生 Co-op Host 自动加载修复
 ### Bug Fixes
 - 重写并替换 `ServerAutoLoad` 为 v2.0.0：启动时不再普通读档后强行补 `multiplayerMode=2`，而是直接打开星露谷原生 `Co-op -> Host` 菜单并激活目标存档槽位，确保 `Game1.server`、可用 farmhand 列表和联机席位按游戏原流程初始化。

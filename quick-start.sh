@@ -56,6 +56,63 @@ ask_question() {
     echo -e "${CYAN}❓ $1${NC}"
 }
 
+set_env_value() {
+    env_key="$1"
+    env_value="$2"
+    env_file="${3:-.env}"
+    env_tmp="${env_file}.tmp.$$"
+
+    PUPPY_ENV_KEY="$env_key" PUPPY_ENV_VALUE="$env_value" awk '
+        BEGIN {
+            key = ENVIRON["PUPPY_ENV_KEY"];
+            value = ENVIRON["PUPPY_ENV_VALUE"];
+            done = 0;
+        }
+        index($0, key "=") == 1 {
+            print key "=" value;
+            done = 1;
+            next;
+        }
+        { print }
+        END {
+            if (!done) {
+                print key "=" value;
+            }
+        }
+    ' "$env_file" > "$env_tmp" && mv "$env_tmp" "$env_file"
+}
+
+print_compose_failure_help() {
+    compose_log="$1"
+    project_path="$(pwd)"
+
+    echo ""
+    print_error "Docker Compose failed. Key troubleshooting info follows."
+    echo ""
+
+    if grep -Eiq 'registry-1\.docker\.io|docker\.io/library|i/o timeout|failed to resolve source metadata|failed to do request' "$compose_log"; then
+        print_warning "Docker Hub base image pull timed out."
+        echo "This is usually a server network problem reaching Docker Hub, not a Stardew server crash."
+        echo ""
+        echo "Retry from the project directory:"
+        echo -e "  ${CYAN}cd \"$project_path\"${NC}"
+        echo -e "  ${CYAN}$COMPOSE_CMD up -d --build${NC}"
+        echo ""
+        echo "If your server provider has a Docker Hub mirror, set these in .env and retry:"
+        echo -e "  ${CYAN}MANAGER_BASE_IMAGE=your-mirror.example.com/docker:27-cli${NC}"
+        echo -e "  ${CYAN}SERVER_BASE_IMAGE=your-mirror.example.com/ubuntu:22.04${NC}"
+        echo -e "  ${CYAN}$COMPOSE_CMD up -d --build${NC}"
+        echo ""
+    fi
+
+    echo "Run logs from the project directory, otherwise Docker will print no configuration file provided:"
+    echo -e "  ${CYAN}cd \"$project_path\"${NC}"
+    echo -e "  ${CYAN}$COMPOSE_CMD logs --tail=120${NC}"
+    echo ""
+    echo "Last startup output:"
+    tail -n 30 "$compose_log" 2>/dev/null || true
+}
+
 # Docker Compose command (global variable, set in check_docker)
 COMPOSE_CMD=""
 REPO_URL="https://github.com/ylty1516/puppy-stardew-server-updated.git"
@@ -263,20 +320,16 @@ configure_steam() {
             vnc_password="${vnc_password:0:8}"
         fi
 
-        # Update .env file
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # macOS
-            sed -i '' "s/STEAM_USERNAME=.*/STEAM_USERNAME=$steam_username/" .env
-            sed -i '' "s/STEAM_PASSWORD=.*/STEAM_PASSWORD=$steam_password/" .env
-            sed -i '' "s/VNC_PASSWORD=.*/VNC_PASSWORD=$vnc_password/" .env
+        # Update .env file. Avoid sed substitution because Steam passwords can
+        # contain /, \, or &, which break sed expressions.
+        if set_env_value "STEAM_USERNAME" "$steam_username" .env \
+            && set_env_value "STEAM_PASSWORD" "$steam_password" .env \
+            && set_env_value "VNC_PASSWORD" "$vnc_password" .env; then
+            print_success "Steam credentials configured!"
         else
-            # Linux
-            sed -i "s/STEAM_USERNAME=.*/STEAM_USERNAME=$steam_username/" .env
-            sed -i "s/STEAM_PASSWORD=.*/STEAM_PASSWORD=$steam_password/" .env
-            sed -i "s/VNC_PASSWORD=.*/VNC_PASSWORD=$vnc_password/" .env
+            print_error "Failed to write .env. Check the current directory permissions."
+            exit 1
         fi
-
-        print_success "Steam credentials configured!"
     else
         # Manual .env editing mode
         echo ""
@@ -336,9 +389,17 @@ start_server() {
 
     echo ""
     print_info "Starting server..."
-    $COMPOSE_CMD up -d
-
-    print_success "Server started!"
+    compose_log="$(mktemp)"
+    $COMPOSE_CMD up -d 2>&1 | tee "$compose_log"
+    compose_status=${PIPESTATUS[0]}
+    if [ "$compose_status" -eq 0 ]; then
+        rm -f "$compose_log"
+        print_success "Server started!"
+    else
+        print_compose_failure_help "$compose_log"
+        rm -f "$compose_log"
+        exit 1
+    fi
 
     # Wait for init container to complete
     print_info "Waiting for init container to complete..."
