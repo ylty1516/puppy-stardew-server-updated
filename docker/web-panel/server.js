@@ -137,6 +137,10 @@ const configAPI = require('./api/config');
 app.get('/api/config', auth.verifyMiddleware, configAPI.getConfig);
 app.put('/api/config', auth.verifyMiddleware, configAPI.updateConfig);
 
+// Recommendation API
+const recommendationsAPI = require('./api/recommendations');
+app.get('/api/recommendations/server', auth.verifyMiddleware, recommendationsAPI.getServerRecommendations);
+
 // Server control API
 app.post('/api/server/restart', auth.verifyMiddleware, statusAPI.restartServer);
 app.post('/api/container/restart', auth.verifyMiddleware, statusAPI.restartContainer);
