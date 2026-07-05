@@ -129,10 +129,15 @@ if [ -f "docker-compose.yml" ] && [ -f ".env.example" ] && [ -f "quick-start-zh.
 fi
 
 if [ -d "$REPO_DIR" ]; then
-  info "检测到已有目录 $REPO_DIR，进入该目录继续安装。"
-  cd "$REPO_DIR" || die "无法进入目录 $REPO_DIR"
-  run_quick_start
-  exit 0
+  if [ -f "$REPO_DIR/docker-compose.yml" ] && [ -f "$REPO_DIR/.env.example" ] && [ -f "$REPO_DIR/quick-start-zh.sh" ]; then
+    info "检测到已有目录 $REPO_DIR，进入该目录继续安装。"
+    cd "$REPO_DIR" || die "无法进入目录 $REPO_DIR"
+    run_quick_start
+    exit 0
+  fi
+
+  info "检测到已有目录 $REPO_DIR，但目录不完整，重新下载项目文件。"
+  rm -rf "$REPO_DIR" || die "无法清理不完整目录 $REPO_DIR"
 fi
 
 info "正在下载项目压缩包（比 git clone 更快）..."
