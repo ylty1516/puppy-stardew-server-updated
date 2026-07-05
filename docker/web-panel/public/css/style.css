@@ -764,6 +764,86 @@ textarea {
   color: var(--accent-warn);
 }
 
+.health-repair-result {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.health-repair-result[hidden] {
+  display: none;
+}
+
+.health-repair-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.health-repair-title span,
+.health-repair-summary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.health-repair-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.health-repair-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  min-width: 0;
+}
+
+.health-repair-step.fixed { border-left: 4px solid var(--accent); }
+.health-repair-step.ok { border-left: 4px solid var(--accent-info); }
+.health-repair-step.skipped { border-left: 4px solid var(--text-muted); }
+.health-repair-step.failed { border-left: 4px solid var(--accent-error); }
+
+.health-repair-badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.health-repair-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.health-repair-text strong {
+  color: var(--text-primary);
+}
+
+.health-repair-text em {
+  color: var(--accent-warn);
+  font-style: normal;
+}
+
 .log-output {
   background: var(--console-bg);
   border-radius: 8px;
@@ -1199,6 +1279,29 @@ textarea {
   margin-top: 4px;
 }
 
+.config-save-toolbar {
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  box-shadow: var(--shadow);
+}
+
+.config-save-hint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.save-config-btn.attention {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
 .recommendation-card {
   display: grid;
   gap: 12px;
@@ -1529,6 +1632,26 @@ textarea {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mod-bulk-guide {
+  flex: 1 1 100%;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-info) 38%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-info) 8%, var(--bg-tertiary));
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.mod-bulk-guide strong {
+  color: var(--text-primary);
+  font-size: 13px;
 }
 
 .btn-danger-outline {
@@ -1892,6 +2015,18 @@ textarea {
   .mod-upload-actions,
   .mod-upload-copy {
     width: 100%;
+  }
+
+  .config-save-toolbar {
+    top: 8px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .config-save-toolbar .btn,
+  .config-save-row .btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .mod-upload-actions .btn {

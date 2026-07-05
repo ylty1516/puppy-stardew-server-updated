@@ -288,7 +288,7 @@
             <span class="status-dot checking" aria-hidden="true"></span>
             <span data-i18n="status.checking">Checking...</span>
           </span>
-          <a class="btn-icon" href="https://github.com/AmigaMeow/puppy-stardew-server" target="_blank" rel="noopener noreferrer" data-i18n-title="github.open" aria-label="GitHub">
+          <a class="btn-icon" href="https://github.com/ylty1516/puppy-stardew-server-updated" target="_blank" rel="noopener noreferrer" data-i18n-title="github.open" aria-label="GitHub">
             <svg class="icon"><use href="#icon-github"></use></svg>
           </a>
         </div>
@@ -547,6 +547,10 @@
                   <svg class="icon"><use href="#icon-refresh"></use></svg>
                   <span data-i18n="diag.refresh">Refresh</span>
                 </button>
+                <button class="btn btn-warning btn-sm" id="healthRepairBtn" type="button" onclick="repairHealth()">
+                  <svg class="icon"><use href="#icon-config"></use></svg>
+                  <span data-i18n="diag.repair">Safe Repair</span>
+                </button>
                 <button class="btn btn-success btn-sm" type="button" onclick="downloadCrashReport()">
                   <svg class="icon"><use href="#icon-download"></use></svg>
                   <span data-i18n="diag.exportReport">Export Report</span>
@@ -554,6 +558,7 @@
               </div>
             </div>
             <div id="healthSummary" class="health-summary"></div>
+            <div id="healthRepairResult" class="health-repair-result" hidden></div>
             <div id="healthChecks" class="health-list">
               <div class="empty-state" data-i18n="players.loading">Loading...</div>
             </div>

@@ -161,6 +161,16 @@ const translations = {
     'diag.title': '服务器健康检查',
     'diag.refresh': '刷新',
     'diag.exportReport': '导出崩溃报告',
+    'diag.repair': '一键安全修复',
+    'diag.repairRunning': '正在执行安全修复...',
+    'diag.repairOk': '安全修复完成：已修复 {fixed} 项，失败 {failed} 项。',
+    'diag.repairFail': '安全修复失败',
+    'diag.repairResultTitle': '最近一次修复结果',
+    'diag.repairBeforeAfter': '修复前 {before}，修复后 {after}',
+    'diag.repairStatus.fixed': '已修复',
+    'diag.repairStatus.ok': '正常',
+    'diag.repairStatus.skipped': '跳过',
+    'diag.repairStatus.failed': '失败',
     'diag.overall.ok': '整体正常',
     'diag.overall.warn': '需要留意',
     'diag.overall.error': '发现问题',
@@ -189,7 +199,7 @@ const translations = {
     'saves.backupFile': '文件 {name}',
     'saves.backupSize': '大小 {size}',
     'config.password': '修改面板密码', 'config.currentPassword': '当前密码', 'config.newPassword': '新密码',
-    'config.update': '更新', 'config.saveChanges': '保存更改', 'mods.title': '已安装模组', 'mods.none': '未找到模组',
+    'config.update': '更新', 'config.saveChanges': '保存更改', 'config.saveHint': '修改配置后点击保存，重启容器后生效。', 'mods.title': '已安装模组', 'mods.none': '未找到模组',
     'mods.custom': '自定义', 'mods.builtin': '内置',
     'mods.upload': '上传模组', 'mods.download': '下载', 'mods.delete': '删除', 'mods.confirmDelete': '确定要删除模组 {name} 吗？',
     'mods.clearCustom': '清空上传Mod',
@@ -206,6 +216,8 @@ const translations = {
     'mods.uploadReplaced': '同名旧模组已备份并覆盖。重启服务器后会加载新版本。',
     'mods.uploadBundleInstalled': '组合包已导入 {count} 个 Mod 并安装到游戏目录。重启服务器后会加载。',
     'mods.uploadBundleReplaced': '组合包已备份并覆盖旧 Mod，共导入 {count} 个 Mod。重启服务器后会加载。',
+    'mods.bulkGuideTitle': '大量 Mod 一次性导入',
+    'mods.bulkGuide': '把多个 Mod 文件夹一起压成一个 zip，压缩包内每个 Mod 文件夹都要包含 manifest.json。上传后服务器会自动解压、安装并重建玩家 Mod 包。',
     'mods.uploadNoManifest': '模组压缩包已上传，但未找到 manifest.json，请检查压缩包结构。',
     'mods.uploadFallback': '模组压缩包已上传，但自动安装失败。重启后仍会尝试从压缩包安装。',
     'mods.deleteNeedsRestart': '模组已删除。重启服务器后将完全卸载。',
@@ -474,6 +486,16 @@ const translations = {
     'diag.title': 'Server Health Check',
     'diag.refresh': 'Refresh',
     'diag.exportReport': 'Export Report',
+    'diag.repair': 'Safe Repair',
+    'diag.repairRunning': 'Running safe repair...',
+    'diag.repairOk': 'Safe repair finished: fixed {fixed}, failed {failed}.',
+    'diag.repairFail': 'Safe repair failed',
+    'diag.repairResultTitle': 'Latest Repair Result',
+    'diag.repairBeforeAfter': 'Before {before}, after {after}',
+    'diag.repairStatus.fixed': 'Fixed',
+    'diag.repairStatus.ok': 'OK',
+    'diag.repairStatus.skipped': 'Skipped',
+    'diag.repairStatus.failed': 'Failed',
     'diag.overall.ok': 'Healthy',
     'diag.overall.warn': 'Needs attention',
     'diag.overall.error': 'Problems found',
@@ -502,7 +524,7 @@ const translations = {
     'saves.backupFile': 'File {name}',
     'saves.backupSize': 'Size {size}',
     'config.password': 'Change Panel Password', 'config.currentPassword': 'Current password', 'config.newPassword': 'New password',
-    'config.update': 'Update', 'config.saveChanges': 'Save Changes', 'mods.title': 'Installed Mods', 'mods.none': 'No mods found',
+    'config.update': 'Update', 'config.saveChanges': 'Save Changes', 'config.saveHint': 'Save changes after editing configuration, then restart the container to apply.', 'mods.title': 'Installed Mods', 'mods.none': 'No mods found',
     'mods.custom': 'Custom', 'mods.builtin': 'Built-in',
     'mods.upload': 'Upload Mod', 'mods.download': 'Download', 'mods.delete': 'Delete', 'mods.confirmDelete': 'Are you sure you want to delete mod {name}?',
     'mods.clearCustom': 'Clear Uploaded Mods',
@@ -519,6 +541,8 @@ const translations = {
     'mods.uploadReplaced': 'The old mod was backed up and overwritten. Restart the server to load the new version.',
     'mods.uploadBundleInstalled': 'Mod pack imported {count} mods into the game Mods directory. Restart the server to load them.',
     'mods.uploadBundleReplaced': 'Old mods were backed up and replaced. Imported {count} mods. Restart the server to load them.',
+    'mods.bulkGuideTitle': 'Bulk Mod Import',
+    'mods.bulkGuide': 'Put multiple mod folders into one zip. Each mod folder must contain manifest.json. After upload, the server extracts, installs, and rebuilds the player mod pack automatically.',
     'mods.uploadNoManifest': 'Mod archive uploaded, but no manifest.json was found. Check the archive structure.',
     'mods.uploadFallback': 'Mod archive uploaded, but automatic installation failed. Restart may still install it from the archive.',
     'mods.deleteNeedsRestart': 'Mod deleted. Restart the server to fully unload it.',
@@ -1689,6 +1713,98 @@ async function loadDiagnostics() {
   }).join('');
 }
 
+function renderHealthRepairResult(data) {
+  const panel = document.getElementById('healthRepairResult');
+  if (!panel || !data || !data.repair) return;
+
+  const steps = Array.isArray(data.repair.steps) ? data.repair.steps : [];
+  const summary = data.repair.summary || {};
+  const before = data.before?.overall ? t('diag.overall.' + data.before.overall) : '--';
+  const after = data.after?.overall ? t('diag.overall.' + data.after.overall) : '--';
+
+  panel.hidden = false;
+  panel.innerHTML =
+    '<div class="health-repair-title">' +
+      '<strong>' + escapeHtml(t('diag.repairResultTitle')) + '</strong>' +
+      '<span>' + escapeHtml(tf('diag.repairBeforeAfter', { before, after })) + '</span>' +
+    '</div>' +
+    '<div class="health-repair-summary">' +
+      escapeHtml(tf('diag.repairOk', {
+        fixed: String(summary.fixed || 0),
+        failed: String(summary.failed || 0),
+      })) +
+    '</div>' +
+    '<div class="health-repair-steps">' +
+      steps.map(step => {
+        const status = step.status || 'skipped';
+        return '<div class="health-repair-step ' + escapeHtml(status) + '">' +
+          '<span class="health-repair-badge">' + escapeHtml(t('diag.repairStatus.' + status)) + '</span>' +
+          '<span class="health-repair-text">' +
+            '<strong>' + escapeHtml(step.label || step.id || '') + '</strong>' +
+            '<span>' + escapeHtml(step.detail || '') + '</span>' +
+            (step.action ? '<em>' + escapeHtml(step.action) + '</em>' : '') +
+          '</span>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+}
+
+async function repairHealth() {
+  const button = document.getElementById('healthRepairBtn');
+  if (button) {
+    button.disabled = true;
+  }
+  showToast(t('diag.repairRunning'), 'info', 5000);
+
+  const data = await API.post('/api/health/repair', {});
+  if (button) {
+    button.disabled = false;
+  }
+
+  if (data && data.repair) {
+    if (data.after) {
+      const summary = document.getElementById('healthSummary');
+      const list = document.getElementById('healthChecks');
+      const overall = data.after.overall || 'warn';
+      const counts = data.after.summary || {};
+      if (summary) {
+        summary.className = 'health-summary ' + overall;
+        summary.innerHTML =
+          '<div class="health-summary-title">' + escapeHtml(t('diag.overall.' + overall)) + '</div>' +
+          '<div class="health-summary-meta">' + escapeHtml(tf('diag.summary', {
+            ok: String(counts.ok || 0),
+            warn: String(counts.warn || 0),
+            error: String(counts.error || 0),
+          })) + '</div>';
+      }
+      if (list) {
+        const checks = data.after.checks || [];
+        list.innerHTML = checks.map(check => {
+          const status = check.status || 'warn';
+          return '<div class="health-item ' + escapeHtml(status) + '">' +
+            '<div class="health-item-main">' +
+              '<div class="health-title">' +
+                '<span>' + escapeHtml(check.label || check.id || '') + '</span>' +
+                '<span class="health-badge">' + escapeHtml(t('diag.status.' + status)) + '</span>' +
+              '</div>' +
+              '<div class="health-detail">' + escapeHtml(check.detail || '') + '</div>' +
+              (check.action ? '<div class="health-action">' + escapeHtml(check.action) + '</div>' : '') +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+    }
+    renderHealthRepairResult(data);
+    showToast(tf('diag.repairOk', {
+      fixed: String(data.repair.summary?.fixed || 0),
+      failed: String(data.repair.summary?.failed || 0),
+    }), data.success ? 'success' : 'warn', 8000);
+    return;
+  }
+
+  showToast(formatApiError(data, t('diag.repairFail')), 'error', 8000);
+}
+
 async function downloadCrashReport() {
   const data = await API.download('/api/reports/crash');
   if (data && data.success) {
@@ -2055,6 +2171,17 @@ async function loadConfig() {
     renderServerRecommendationLoading();
   }
 
+  const saveToolbar = document.createElement('div');
+  saveToolbar.id = 'configSaveToolbar';
+  saveToolbar.className = 'card config-save-toolbar';
+  saveToolbar.innerHTML =
+    '<span class="config-save-hint">' + escapeHtml(t('config.saveHint')) + '</span>' +
+    '<button class="btn btn-success save-config-btn" type="button" onclick="saveConfig()" disabled>' +
+      icon('config', 'icon') +
+      '<span>' + escapeHtml(t('config.saveChanges')) + '</span>' +
+    '</button>';
+  container.appendChild(saveToolbar);
+
   for (const group of data.groups) {
     const card = document.createElement('div');
     card.className = 'card config-group';
@@ -2120,7 +2247,7 @@ async function loadConfig() {
   // Add save button (always visible but starts hidden, shown on change)
   const saveBtn = document.createElement('div');
   saveBtn.className = 'config-save-row';
-  saveBtn.innerHTML = '<button class="btn btn-success" id="saveConfigBtn" onclick="saveConfig()" style="display:none">' + t('config.saveChanges') + '</button>';
+  saveBtn.innerHTML = '<button class="btn btn-success save-config-btn" type="button" onclick="saveConfig()" disabled>' + icon('config', 'icon') + '<span>' + escapeHtml(t('config.saveChanges')) + '</span></button>';
   container.appendChild(saveBtn);
 
   loadServerRecommendations(true);
@@ -2661,8 +2788,10 @@ async function startFactoryReset() {
 }
 
 function configChanged() {
-  var btn = document.getElementById('saveConfigBtn');
-  if (btn) btn.style.display = '';
+  document.querySelectorAll('.save-config-btn').forEach(function(btn) {
+    btn.disabled = false;
+    btn.classList.add('attention');
+  });
 }
 
 function togglePasswordVisibility(btn) {
@@ -2695,7 +2824,10 @@ async function saveConfig() {
 
   const data = await API.put('/api/config', updates);
   if (data && data.success) {
-    document.getElementById('saveConfigBtn').style.display = 'none';
+    document.querySelectorAll('.save-config-btn').forEach(function(btn) {
+      btn.disabled = true;
+      btn.classList.remove('attention');
+    });
     // Show restart confirmation dialog instead of just a toast
     showRestartModal();
   } else {
@@ -2820,6 +2952,10 @@ async function loadMods() {
         <span class="mod-upload-hint">${t('mods.clientPackHint')}</span>
         <span class="mod-upload-hint">${formatClientPackStatus(data.clientPack)}</span>
         <span id="modUploadStatus" class="mod-upload-status"></span>
+      </div>
+      <div class="mod-bulk-guide">
+        <strong>${t('mods.bulkGuideTitle')}</strong>
+        <span>${t('mods.bulkGuide')}</span>
       </div>
     </div>
   `;

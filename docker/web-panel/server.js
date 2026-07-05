@@ -181,6 +181,7 @@ app.delete('/api/mods/:folder', auth.verifyMiddleware, modsAPI.deleteMod);
 // Diagnostics API
 const diagnosticsAPI = require('./api/diagnostics');
 app.get('/api/health', auth.verifyMiddleware, diagnosticsAPI.getHealth);
+app.post('/api/health/repair', auth.verifyMiddleware, diagnosticsAPI.repairHealth);
 app.get('/api/reports/crash', auth.verifyMiddleware, diagnosticsAPI.exportCrashReport);
 
 // ─── Static Files ────────────────────────────────────────────────

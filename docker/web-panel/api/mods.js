@@ -1807,6 +1807,7 @@ module.exports = {
   getMods,
   getPublicModManifest,
   getPublicMods,
+  safeRebuildClientPack,
   uploadMod,
   deleteMod,
   clearCustomMods,

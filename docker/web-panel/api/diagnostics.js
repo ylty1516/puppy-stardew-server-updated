@@ -530,6 +530,144 @@ function buildHealth(req = null) {
   };
 }
 
+function repairStep(id, label, handler) {
+  try {
+    const result = handler() || {};
+    return {
+      id,
+      label,
+      status: result.status || 'fixed',
+      detail: result.detail || 'Repair step completed.',
+      action: result.action || '',
+    };
+  } catch (error) {
+    return {
+      id,
+      label,
+      status: 'failed',
+      detail: error.cause || error.message || 'Repair step failed.',
+      action: error.action || 'Check permissions, disk space, and container logs, then retry.',
+    };
+  }
+}
+
+function ensureWritableDirectory(targetPath) {
+  const existed = fs.existsSync(targetPath);
+  fs.mkdirSync(targetPath, { recursive: true });
+
+  let chmodApplied = false;
+  try {
+    fs.accessSync(targetPath, fs.constants.R_OK | fs.constants.W_OK);
+  } catch (error) {
+    try {
+      fs.chmodSync(targetPath, 0o775);
+      chmodApplied = true;
+    } catch (chmodError) {}
+    fs.accessSync(targetPath, fs.constants.R_OK | fs.constants.W_OK);
+  }
+
+  return {
+    existed,
+    chmodApplied,
+  };
+}
+
+function repairDirectoryStep(targetPath, label) {
+  return repairStep(`repair_${label.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}`, label, () => {
+    const result = ensureWritableDirectory(targetPath);
+    return {
+      status: result.existed && !result.chmodApplied ? 'ok' : 'fixed',
+      detail: result.existed
+        ? `${targetPath} is writable${result.chmodApplied ? ' after chmod 775' : ''}.`
+        : `${targetPath} was created and is writable.`,
+    };
+  });
+}
+
+function repairClientPackStep(req) {
+  return repairStep('repair_client_mod_pack', 'Player mod download pack', () => {
+    const result = modsAPI.safeRebuildClientPack('health-repair');
+    if (result.error || result.cause) {
+      return {
+        status: 'failed',
+        detail: result.cause || result.error,
+        action: result.action || 'Check zip availability and game Mods directory permissions.',
+      };
+    }
+
+    try {
+      modsAPI.getPublicModManifest(req, { force: true });
+    } catch (error) {
+      return {
+        status: 'failed',
+        detail: error.cause || error.message,
+        action: error.action || 'Check the game Mods directory and retry.',
+      };
+    }
+
+    if (!result.available && result.modCount === 0) {
+      return {
+        status: 'ok',
+        detail: 'No player-required mods are installed, so no player pack is needed.',
+      };
+    }
+
+    return {
+      status: 'fixed',
+      detail: `Player mod pack rebuilt with ${result.modCount || 0} mod(s).`,
+    };
+  });
+}
+
+function summarizeRepairSteps(steps) {
+  return steps.reduce((acc, step) => {
+    acc[step.status] = (acc[step.status] || 0) + 1;
+    return acc;
+  }, { fixed: 0, ok: 0, skipped: 0, failed: 0 });
+}
+
+function repairHealth(req, res) {
+  try {
+    const before = buildHealth(req);
+    const steps = [
+      repairDirectoryStep(config.DATA_DIR, 'Panel data directory'),
+      repairDirectoryStep(config.META_DIR, 'Architecture metadata directory'),
+      repairDirectoryStep(config.SAVES_DIR, 'Stardew saves directory'),
+      repairDirectoryStep(config.GAME_DIR, 'Game directory'),
+      repairDirectoryStep(path.join(config.GAME_DIR, 'Mods'), 'Game Mods directory'),
+      repairDirectoryStep(config.LOG_DIR, 'Panel log directory'),
+      repairDirectoryStep(config.BACKUPS_DIR, 'Backup directory'),
+      repairDirectoryStep(path.dirname(config.SMAPI_LOG), 'SMAPI error log directory'),
+      repairClientPackStep(req),
+    ];
+    const after = buildHealth(req);
+    const summary = summarizeRepairSteps(steps);
+
+    res.json({
+      success: summary.failed === 0,
+      generatedAt: new Date().toISOString(),
+      before: {
+        overall: before.overall,
+        summary: before.summary,
+      },
+      after,
+      repair: {
+        summary,
+        steps,
+      },
+    });
+  } catch (error) {
+    return sendError(res, req, error, {
+      status: 500,
+      code: 'HEALTH_REPAIR_FAILED',
+      message: 'Failed to run safe repair',
+      cause: error.cause || 'The panel could not complete the safe repair workflow.',
+      details: error.details || error.message,
+      action: error.action || 'Check panel logs, disk space, and directory permissions, then retry.',
+    });
+  }
+}
+
 function getHealth(req, res) {
   try {
     res.json(buildHealth(req));
@@ -616,5 +754,6 @@ function exportCrashReport(req, res) {
 
 module.exports = {
   getHealth,
+  repairHealth,
   exportCrashReport,
 };
