@@ -26,6 +26,7 @@ const MANUAL_PAUSE_FILE = process.env.MANUAL_PAUSE_FILE || '/home/steam/web-pane
 const AUTO_PAUSE_FILE = process.env.AUTO_PAUSE_FILE || '/home/steam/web-panel/data/auto-pause.json';
 const GAME_STATE_FILE = process.env.GAME_STATE_FILE || '/home/steam/web-panel/data/game-state.json';
 const HOST_COMMAND_FILE = process.env.HOST_COMMAND_FILE || '/home/steam/web-panel/data/host-command.json';
+const SERVER_AUTOLOAD_STATE_FILE = process.env.SERVER_AUTOLOAD_STATE_FILE || '/home/steam/web-panel/data/server-autoload-state.json';
 const META_DIR = process.env.PUPPY_META_DIR || path.join(DATA_DIR, 'meta');
 const MOD_GRAPH_FILE = process.env.MOD_GRAPH_FILE || path.join(META_DIR, 'mod_graph.json');
 const WORLD_FINGERPRINT_FILE = process.env.WORLD_FINGERPRINT_FILE || path.join(META_DIR, 'world_fingerprint.json');
@@ -46,6 +47,7 @@ const config = {
   AUTO_PAUSE_FILE,
   GAME_STATE_FILE,
   HOST_COMMAND_FILE,
+  SERVER_AUTOLOAD_STATE_FILE,
   META_DIR,
   MOD_GRAPH_FILE,
   WORLD_FINGERPRINT_FILE,

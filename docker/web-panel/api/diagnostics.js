@@ -451,6 +451,34 @@ function buildHealth(req = null) {
     action: status.joinability?.joinable ? '' : (status.joinability?.action || 'Check SMAPI logs and host state.'),
   });
 
+  const serverAutoload = status.serverAutoload || {};
+  const autoloadPhase = serverAutoload.phase || 'unknown';
+  const autoloadOk = serverAutoload.ok === true && serverAutoload.stale !== true;
+  checks.push({
+    id: 'server_coop_autoload',
+    label: 'Native Co-op host autoload',
+    status: autoloadOk || ['world_ready', 'slot_activated'].includes(autoloadPhase) ? 'ok' : (serverAutoload.available ? 'warn' : 'warn'),
+    detail: serverAutoload.available
+      ? `${autoloadPhase}: ${serverAutoload.message || 'No message'}`
+      : 'No ServerAutoLoad v2 state has been written yet.',
+    action: serverAutoload.available
+      ? (serverAutoload.ok === false ? 'Check the selected SAVE_NAME, .selected_save marker, and whether the save appears in the in-game Co-op Host list.' : '')
+      : 'Update/rebuild the container so ServerAutoLoad v2.0.0 is installed, then restart the game container.',
+  });
+
+  const joinHandshake = status.joinHandshake || {};
+  const handshakeStage = joinHandshake.stage || 'none';
+  const handshakeStatus = handshakeStage === 'approved' || handshakeStage === 'none'
+    ? 'ok'
+    : (handshakeStage === 'rejected_no_slots' || handshakeStage === 'disconnected_after_farmhand_list' ? 'error' : 'warn');
+  checks.push({
+    id: 'join_handshake',
+    label: 'Player join handshake',
+    status: handshakeStatus,
+    detail: joinHandshake.label || handshakeStage,
+    action: joinHandshake.action || 'Have a player try to join, then refresh diagnostics.',
+  });
+
   const orchestration = status.orchestration || {};
   const orchestrationBlockers = Array.isArray(orchestration.blockers) ? orchestration.blockers : [];
   checks.push({
@@ -713,6 +741,7 @@ function exportCrashReport(req, res) {
     copyIfExists(config.SMAPI_LOG, tempRoot, 'SMAPI-latest.txt');
     copyIfExists(config.STATUS_FILE, tempRoot, 'status.json');
     copyIfExists(config.GAME_STATE_FILE, tempRoot, 'game-state.json');
+    copyIfExists(config.SERVER_AUTOLOAD_STATE_FILE, tempRoot, 'server-autoload-state.json');
     copyIfExists(config.MOD_GRAPH_FILE, tempRoot, 'mod_graph.json');
     copyIfExists(config.WORLD_FINGERPRINT_FILE, tempRoot, 'world_fingerprint.json');
     copyIfExists(config.ORCHESTRATION_STATE_FILE, tempRoot, 'orchestration-state.json');

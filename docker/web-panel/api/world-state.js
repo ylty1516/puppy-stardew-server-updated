@@ -658,14 +658,18 @@ function deriveOrchestration(status, worldState) {
     phase = runtime.phase || 'stopped';
   } else if (!status.gameState || !status.gameState.available) {
     state = 'LOADING';
-    phase = 'waiting_for_smapi_state_bridge';
+    phase = status.serverAutoload?.available
+      ? `autoload_${status.serverAutoload.phase || 'unknown'}`
+      : 'waiting_for_smapi_state_bridge';
   } else if (status.gameState.stale) {
     state = 'DEGRADED';
     phase = 'stale_state_bridge';
     blockers.push('state_bridge_stale');
   } else if (status.gameState.worldReady !== true) {
     state = 'LOADING';
-    phase = 'save_not_loaded';
+    phase = status.serverAutoload?.available
+      ? `autoload_${status.serverAutoload.phase || 'save_not_loaded'}`
+      : 'save_not_loaded';
   } else if (status.gameState.multiplayerReady !== true) {
     state = 'STABILIZING';
     phase = 'multiplayer_handshake';

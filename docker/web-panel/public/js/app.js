@@ -82,13 +82,19 @@ const translations = {
     'dash.gameDay': '游戏日期', 'dash.backups': '备份数量', 'dash.mods': '已加载Mod',
     'dash.resources': '系统资源', 'dash.quickActions': '快捷操作',
     'dash.details': '服务器详情', 'dash.joinIp': '联机 IP', 'dash.joinPort': '联机端口',
-    'dash.joinable': '可加入状态', 'dash.connectionFreshness': '人数刷新', 'dash.modRuntime': 'Mod 生效状态', 'dash.orchestration': '编排状态', 'dash.worldFingerprint': '世界指纹', 'dash.eventProxy': '玩家事件代理', 'dash.autoPause': '自动暂停', 'dash.timePause': '游戏时间状态', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
+    'dash.joinable': '可加入状态', 'dash.joinHandshake': '加入握手', 'dash.connectionFreshness': '人数刷新', 'dash.modRuntime': 'Mod 生效状态', 'dash.orchestration': '编排状态', 'dash.worldFingerprint': '世界指纹', 'dash.eventProxy': '玩家事件代理', 'dash.autoPause': '自动暂停', 'dash.timePause': '游戏时间状态', 'dash.localIps': '容器 IP', 'dash.version': '版本', 'dash.scriptHealth': '自动化脚本',
     'dash.metricsPort': '监控端口', 'dash.events': '自动化事件',
     'dash.passout': '昏倒处理', 'dash.readyCheck': '准备检查', 'dash.offlineEvents': '离线恢复',
     'dash.joinHint': '游戏内通常只需要输入 IP 地址。', 'dash.portHint': '星露谷联机输入框里不要追加端口号。',
     'dash.healthy': '正常', 'dash.unhealthy': '异常',
     'dash.paused': '暂停游戏',
     'join.ready': '可加入', 'join.blocked': '不可加入',
+    'joinHandshake.none': '暂无连接',
+    'joinHandshake.sent_farmhand_list': '已发送席位列表',
+    'joinHandshake.farmhand_requested': '玩家已选择席位',
+    'joinHandshake.approved': '加入已批准',
+    'joinHandshake.rejected_no_slots': '无可用席位',
+    'joinHandshake.disconnected_after_farmhand_list': '席位列表后断开',
     'join.reason.ready': '联机层已初始化，玩家现在应该可以加入。',
     'join.reason.game_process_stopped': '游戏进程未运行，请启动或重启容器。',
     'join.reason.state_bridge_missing': '正在等待 SMAPI 状态桥写入状态。',
@@ -434,13 +440,19 @@ const translations = {
     'dash.gameDay': 'Game Day', 'dash.backups': 'Backups', 'dash.mods': 'Loaded Mods',
     'dash.resources': 'System Resources', 'dash.quickActions': 'Quick Actions',
     'dash.details': 'Server Details', 'dash.joinIp': 'Join IP', 'dash.joinPort': 'Join Port',
-    'dash.joinable': 'Joinable', 'dash.connectionFreshness': 'Player Refresh', 'dash.modRuntime': 'Mod Runtime', 'dash.orchestration': 'Orchestration', 'dash.worldFingerprint': 'World Fingerprint', 'dash.eventProxy': 'Player Event Proxy', 'dash.autoPause': 'Auto Pause', 'dash.timePause': 'Time State', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
+    'dash.joinable': 'Joinable', 'dash.joinHandshake': 'Join Handshake', 'dash.connectionFreshness': 'Player Refresh', 'dash.modRuntime': 'Mod Runtime', 'dash.orchestration': 'Orchestration', 'dash.worldFingerprint': 'World Fingerprint', 'dash.eventProxy': 'Player Event Proxy', 'dash.autoPause': 'Auto Pause', 'dash.timePause': 'Time State', 'dash.localIps': 'Container IPs', 'dash.version': 'Version', 'dash.scriptHealth': 'Automation',
     'dash.metricsPort': 'Metrics Port', 'dash.events': 'Automation Events',
     'dash.passout': 'Passout', 'dash.readyCheck': 'Ready Check', 'dash.offlineEvents': 'Offline Recovery',
     'dash.joinHint': 'In-game usually only needs the IP address.', 'dash.portHint': 'Do not append the port in Stardew\'s join field.',
     'dash.healthy': 'Healthy', 'dash.unhealthy': 'Unhealthy',
     'dash.paused': 'Paused',
     'join.ready': 'Ready', 'join.blocked': 'Not joinable',
+    'joinHandshake.none': 'No attempt',
+    'joinHandshake.sent_farmhand_list': 'Slot list sent',
+    'joinHandshake.farmhand_requested': 'Farmhand requested',
+    'joinHandshake.approved': 'Join approved',
+    'joinHandshake.rejected_no_slots': 'No free slot',
+    'joinHandshake.disconnected_after_farmhand_list': 'Disconnected after list',
     'join.reason.ready': 'The multiplayer layer is initialized. Players should be able to join now.',
     'join.reason.game_process_stopped': 'The game process is not running. Start or restart the container.',
     'join.reason.state_bridge_missing': 'Waiting for the SMAPI state bridge to write game state.',
@@ -1186,6 +1198,7 @@ function updateDashboardUI(data) {
   setText('detail-join-ip', network.joinIp || '--');
   setText('detail-join-port', `${network.joinPort || 24642}/UDP`);
   updateJoinabilityUI(data.joinability || { joinable: false, reason: 'unknown' });
+  updateJoinHandshakeUI(data.joinHandshake || { stage: 'none' });
   updateConnectionFreshnessUI(data.connection || {});
   updateModRuntimeUI(data.modRuntime || { active: false, state: 'unknown' });
   updateOrchestrationUI(data.orchestration || { state: 'INIT', phase: 'initializing', blockers: [] });
@@ -1217,6 +1230,26 @@ function updateJoinabilityUI(joinability) {
 
   if (note) {
     note.textContent = reasonText;
+  }
+}
+
+function updateJoinHandshakeUI(handshake) {
+  const value = document.getElementById('detail-join-handshake');
+  const note = document.getElementById('detail-join-handshake-note');
+  const stage = handshake?.stage || 'none';
+  const label = translations[currentLang][`joinHandshake.${stage}`] || handshake?.label || stage;
+
+  if (value) {
+    value.textContent = label;
+    const tone = stage === 'approved'
+      ? 'ok'
+      : (stage === 'rejected_no_slots' || stage === 'disconnected_after_farmhand_list' ? 'error' : 'warn');
+    setTone(value, stage === 'none' ? '' : tone);
+  }
+
+  if (note) {
+    const connectionId = handshake?.connectionId ? ` (${handshake.connectionId})` : '';
+    note.textContent = `${handshake?.action || handshake?.label || '--'}${connectionId}`;
   }
 }
 

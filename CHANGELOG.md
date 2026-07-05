@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-05 原生 Co-op Host 自动加载修复
+### Bug Fixes
+- 重写并替换 `ServerAutoLoad` 为 v2.0.0：启动时不再普通读档后强行补 `multiplayerMode=2`，而是直接打开星露谷原生 `Co-op -> Host` 菜单并激活目标存档槽位，确保 `Game1.server`、可用 farmhand 列表和联机席位按游戏原流程初始化。
+- 修复玩家明明有空闲小屋却提示“服务器上没有空闲位置”的核心原因：旧自动加载绕过 Co-op Host 流程，导致客户端连接后停在 `Sending available farmhands` 阶段。
+### Improvements
+- 新增 `server-autoload-state.json`，记录自动加载阶段、目标存档、当前菜单、是否已打开 Host 页和是否已激活存档槽位。
+- 面板状态和诊断页新增加入握手/原生 Co-op 自动加载检查，能区分“可加入门禁 ready”和“客户端是否真的推进到选择 farmhand/批准加入”。
+- 崩溃报告会打包 `server-autoload-state.json`，方便排查启动后联机席位初始化失败的问题。
+
 ## 2026-07-05 一键卸载项目
 ### New Features
 - Web 面板 `配置` 页面新增 `卸载项目` 危险操作，会要求输入 `UNINSTALL` 确认后才会执行。

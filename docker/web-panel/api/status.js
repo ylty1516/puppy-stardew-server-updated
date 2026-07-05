@@ -63,8 +63,7 @@ function readRecentLogLines(limit = 400) {
   }
 }
 
-function extractLogHints() {
-  const lines = readRecentLogLines(500);
+function extractLogHints(lines = readRecentLogLines(500)) {
   let day = '';
   const connectedPlayers = new Set();
   let paused = false;
@@ -130,6 +129,61 @@ function extractLogHints() {
   }
 
   return { day, players: connectedPlayers.size, paused };
+}
+
+function describeJoinHandshake(lines = readRecentLogLines(500)) {
+  const state = {
+    stage: 'none',
+    connectionId: '',
+    line: '',
+    label: 'No recent player join attempt',
+    action: 'Have a player try to join, then refresh this page.',
+  };
+
+  for (const line of lines) {
+    let match = line.match(/Sending available farmhands to connection ID\s+([A-Za-z0-9_.:-]+)/i);
+    if (match) {
+      state.stage = 'sent_farmhand_list';
+      state.connectionId = match[1];
+      state.line = line;
+      state.label = 'Server sent the farmhand list';
+      state.action = 'If the player still sees no free slot, the next check is whether the list is empty or the client did not request a farmhand after receiving it.';
+      continue;
+    }
+
+    if (/Received context for farmhand|received farmhand request|Server received farmhand request/i.test(line)) {
+      state.stage = 'farmhand_requested';
+      state.line = line;
+      state.label = 'Client selected or requested a farmhand';
+      state.action = 'Wait for approval or check the next SMAPI line if the join still fails.';
+      continue;
+    }
+
+    if (/Approved request for farmhand|farmhand .* connected|joined the game|player .* connected/i.test(line)) {
+      state.stage = 'approved';
+      state.line = line;
+      state.label = 'Join request approved';
+      state.action = '';
+      continue;
+    }
+
+    if (/no available.*(farmhand|cabin|slot)|no empty cabin|no available cabins|farm is full|server.*full|not enough cabin/i.test(line)) {
+      state.stage = 'rejected_no_slots';
+      state.line = line;
+      state.label = 'Server reported no free farmhand slot';
+      state.action = 'Check playerLimit, enableFarmhandCreation, cabins, and whether the loaded save was opened through a true co-op host flow.';
+      continue;
+    }
+
+    if (state.stage === 'sent_farmhand_list' && /disconnect|disconnected|lost connection|left the game|connection closed/i.test(line)) {
+      state.stage = 'disconnected_after_farmhand_list';
+      state.line = line;
+      state.label = 'Player disconnected after the farmhand list was sent';
+      state.action = 'This usually means the client could not choose a farmhand or rejected the slot list. Compare the client mod set and run the save slot audit.';
+    }
+  }
+
+  return state;
 }
 
 function normalizeJoinHost(host) {
@@ -291,6 +345,45 @@ function writeAutoPauseState(enabled, reason = '') {
     exists: true,
     inheritedDefault: false,
   };
+}
+
+function readServerAutoloadState() {
+  const emptyState = {
+    available: false,
+    stale: true,
+    ageSeconds: null,
+    phase: 'unknown',
+    ok: false,
+    message: '',
+    targetSave: '',
+    file: config.SERVER_AUTOLOAD_STATE_FILE || '',
+  };
+
+  try {
+    if (!config.SERVER_AUTOLOAD_STATE_FILE || !fs.existsSync(config.SERVER_AUTOLOAD_STATE_FILE)) {
+      return emptyState;
+    }
+
+    const data = JSON.parse(fs.readFileSync(config.SERVER_AUTOLOAD_STATE_FILE, 'utf-8'));
+    const updatedAtMs = Date.parse(data.updatedAt || '');
+    const ageSeconds = Number.isFinite(updatedAtMs)
+      ? Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000))
+      : null;
+
+    return {
+      ...emptyState,
+      ...data,
+      available: true,
+      ageSeconds,
+      stale: ageSeconds === null || ageSeconds > 60,
+      file: config.SERVER_AUTOLOAD_STATE_FILE,
+    };
+  } catch (error) {
+    return {
+      ...emptyState,
+      error: error.message,
+    };
+  }
 }
 
 function formatGameDay(gameState) {
@@ -478,6 +571,7 @@ function collectStatus(req = null) {
         blockers: [],
       },
     },
+    serverAutoload: readServerAutoloadState(),
     singleFarmhandMenuPause: {
       enabled: false,
       applied: false,
@@ -662,7 +756,9 @@ function collectStatus(req = null) {
     // Process not found
   }
 
-  const hints = extractLogHints();
+  const recentLogLines = readRecentLogLines(500);
+  const hints = extractLogHints(recentLogLines);
+  status.joinHandshake = describeJoinHandshake(recentLogLines);
   if ((status.day === 'Unknown' || !status.day) && hints.day) {
     status.day = hints.day;
   }

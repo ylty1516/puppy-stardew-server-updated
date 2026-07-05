@@ -1,0 +1,10 @@
+{
+  "Enabled": true,
+  "SaveFileName": "",
+  "UseSelectedSaveMarker": true,
+  "SelectedSaveMarker": "/home/steam/.config/StardewValley/Saves/.selected_save",
+  "AutoSelectMostRecentSave": true,
+  "StartupDelayTicks": 180,
+  "MaxWaitTicks": 7200,
+  "StateFile": "/home/steam/web-panel/data/server-autoload-state.json"
+}

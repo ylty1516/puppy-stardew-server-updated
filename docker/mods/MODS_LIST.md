@@ -19,17 +19,18 @@ This document lists all the mods included in the Puppy Stardew Server Docker ima
 
 ### 2. Server Auto Load
 - **Author**: Puppy-Stardew
-- **Version**: 1.1.0
-- **Description**: Save management and auto-load helper for dedicated servers. Automatically loads the most recent save on startup.
+- **Version**: 2.0.0
+- **Description**: Save management and auto-load helper for dedicated servers. Loads the selected save through Stardew Valley's native Co-op Host menu flow.
 - **Unique ID**: puppystardew.ServerAutoLoad
 - **Files**:
-  - ServerAutoLoad.dll (24K)
-  - config.json (45 bytes)
-  - manifest.json (354 bytes)
+  - ServerAutoLoad.dll (25K)
+  - config.json (319 bytes)
+  - manifest.json (355 bytes)
 - **Features**:
-  - **Automatic save loading** - No manual VNC loading required!
+  - **Native Co-op Host autoload** - opens the game's Host save list and activates the selected save
   - Automatic save file detection and sorting by date
   - Auto-loads most recent save or configured save
+  - Writes `server-autoload-state.json` for panel diagnostics
   - Save monitoring and logging
   - Configuration tracking
 
@@ -69,7 +70,7 @@ These mods are pre-installed in the Docker image and will be automatically loade
 ## Notes
 
 - **Always On Server**: Enables headless 24/7 server operation
-- **Server Auto Load**: Helps manage and monitor saves in headless mode. Displays save information and loading instructions on startup
+- **Server Auto Load**: Loads saves through the native Co-op Host flow so multiplayer farmhand slots initialize correctly
 - **AutoHideHost**: Ensures the host player remains hidden and handles day/night transitions seamlessly with instant sleep functionality
 - **Skill Level Guard**: Critical fix for Always On Server's forced Level 10 issue. Uses Harmony patches to intercept and correct skill levels based on actual XP. Tested and verified working in v1.0.49+
 
@@ -78,13 +79,13 @@ These mods are pre-installed in the Docker image and will be automatically loade
 ### First Time Setup
 
 1. Start the container
-2. **For existing saves**: Server Auto Load will automatically detect and load the most recent save
+2. **For existing saves**: Server Auto Load will automatically open the native Host list and load the selected or most recent save
 3. **For new saves**: Connect via VNC (port 5900) to create a new farm
 4. Once loaded, the game runs continuously
 
 ### After Container Restart
 
-- **Automatic!** Server Auto Load will automatically load the most recent save
+- **Automatic!** Server Auto Load will automatically load the selected save through `Co-op -> Host`
 - No manual VNC loading required
 - The game continues running 24/7 via Always On Server
 

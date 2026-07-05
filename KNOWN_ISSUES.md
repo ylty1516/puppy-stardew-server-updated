@@ -37,61 +37,38 @@ This is a fundamental limitation of running an unattended headless host, not a f
 
 ---
 
-## Container Restart - Manual Save Reload Required
-## 容器重启 - 需要手动重新加载存档
-
-**Issue / 问题:**
-
-When the container restarts, the save file is automatically loaded but the multiplayer server component is not fully initialized. Players cannot connect until the save is manually reloaded through VNC.
-
-容器重启后，存档文件会自动加载，但联机服务器组件未完全初始化。玩家无法连接，需要通过 VNC 手动重新加载存档。
-
-**Why This Happens / 原因:**
-
-The Server Auto Load mod uses reflection to automatically load the save file on startup. However, in Stardew Valley 1.6+, the multiplayer networking layer (`Game1.server`) requires initialization through the game's Co-op menu flow, not just loading save data. The automatic load bypasses this initialization.
-
-Server Auto Load 模组使用反射在启动时自动加载存档文件。但是在星露谷物语 1.6+ 版本中，联机网络层（`Game1.server`）需要通过游戏的 Co-op 菜单流程初始化，而不仅仅是加载存档数据。自动加载绕过了这个初始化过程。
-
-**Workaround / 解决方法:**
-
-After container restart, follow these steps to restore multiplayer functionality:
-
-容器重启后，按以下步骤恢复联机功能：
-
-1. Connect to the server via VNC (port 5900)
-   通过 VNC 连接到服务器（端口 5900）
-
-2. Press ESC to return to the title screen
-   按 ESC 返回标题界面
-
-3. Click "CO-OP" → Select your save → Click "Load"
-   点击 "CO-OP" → 选择你的存档 → 点击 "加载"
-
-4. The multiplayer server will now be fully initialized and players can connect
-   联机服务器现在已完全初始化，玩家可以连接
-
-**Time Required / 所需时间:** ~30 seconds / 约30秒
-
-**Impact / 影响:**
-
-- Does not affect normal operation (only after restarts)
-  不影响正常运行（仅在重启后）
-
-- Does not cause data loss - all progress is saved
-  不会导致数据丢失 - 所有进度都已保存
-
-- Container health check will still pass (game is running)
-  容器健康检查仍会通过（游戏正在运行）
+## Container Restart - Native Co-op Autoload
+## 容器重启 - 原生 Co-op 自动加载
 
 **Status / 状态:**
 
-This is a known limitation. A permanent fix would require modifying the Server Auto Load mod to properly initialize the multiplayer server component, which involves complex reflection and may break with future game updates.
+Fixed in ServerAutoLoad v2.0.0.
 
-这是已知的限制。永久修复需要修改 Server Auto Load 模组以正确初始化联机服务器组件，这涉及复杂的反射操作，可能在未来的游戏更新中失效。
+已在 ServerAutoLoad v2.0.0 修复。
 
-For most users, the current workaround is acceptable since container restarts are infrequent (typically only for updates or maintenance).
+**What changed / 改动:**
 
-对于大多数用户来说，当前的解决方法是可以接受的，因为容器重启并不频繁（通常只用于更新或维护）。
+Older builds loaded save data directly and then tried to force host mode. In Stardew Valley 1.6+, that can leave the multiplayer farmhand slot list incomplete. ServerAutoLoad v2 now opens Stardew Valley's native `Co-op -> Host` menu, waits for host save slots, and activates the selected save through the game's own `HostFileSlot.Activate()` path.
+
+旧版会直接读取存档数据，然后尝试强行补成主机模式。在星露谷物语 1.6+ 中，这可能导致多人 farmhand 席位列表初始化不完整。ServerAutoLoad v2 现在会打开星露谷原生 `Co-op -> Host` 菜单，等待主持存档槽位出现，再通过游戏自己的 `HostFileSlot.Activate()` 路径载入选中的存档。
+
+**If players still cannot join / 如果玩家仍然无法加入:**
+
+Check the Web panel diagnostics. The report now includes `server-autoload-state.json` and the player join handshake stage, so you can distinguish:
+
+打开 Web 面板诊断。报告现在会包含 `server-autoload-state.json` 和玩家加入握手阶段，用来区分：
+
+- whether the native Host menu opened
+- whether the selected save appeared in the Host list
+- whether the host slot was activated
+- whether the server sent farmhand slots to the client
+- whether the client selected a farmhand and the server approved it
+
+- 是否已打开原生 Host 菜单
+- 选中的存档是否出现在 Host 列表
+- 是否已激活 Host 存档槽位
+- 服务端是否已把 farmhand 席位列表发给客户端
+- 客户端是否已选择 farmhand，并被服务端批准
 
 ---
 
@@ -141,7 +118,7 @@ Stardew Valley's multiplayer server requires an active save file. The game must 
 **Impact / 影响:**
 
 One-time setup only. After the initial save is created, it will auto-load on subsequent starts (though multiplayer may require manual reload after restarts - see issue above).
-仅需一次设置。创建初始存档后，后续启动时会自动加载（尽管重启后联机可能需要手动重新加载 - 见上述问题）。
+仅需一次设置。创建初始存档后，ServerAutoLoad v2 会在后续启动时通过原生 `Co-op -> Host` 流程自动加载目标存档。
 
 **Workaround / 解决方法:**
 
