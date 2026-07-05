@@ -467,7 +467,17 @@ for file in .env docker-compose.yml docker/config/startup_preferences data/meta/
   fi
 done
 if [ "$SKIP_SAVE_BACKUP" != "true" ] && [ -d data/saves ]; then
-  if ! tar -czf "$BACKUP_DIR/saves.tar.gz" data/saves; then
+  if tar --warning=no-file-changed \
+    --exclude='data/saves/ErrorLogs' \
+    --exclude='data/saves/ErrorLogs/*' \
+    --exclude='data/saves/*/ErrorLogs' \
+    --exclude='data/saves/*/ErrorLogs/*' \
+    --exclude='data/saves/SMAPI-latest.txt' \
+    --exclude='data/saves/*/SMAPI-latest.txt' \
+    --exclude='data/saves/*/*/SMAPI-latest.txt' \
+    -czf "$BACKUP_DIR/saves.tar.gz" data/saves; then
+    printf '%s\\n' "Save backup excluded runtime logs under data/saves/ErrorLogs so a live SMAPI-latest.txt cannot block updates." > "$BACKUP_DIR/save-backup-notes.txt"
+  else
     echo "Save backup failed. Update is blocked to keep the server recoverable. Set PUPPY_UPDATE_SKIP_SAVE_BACKUP=true only if you intentionally accept this risk."
     exit 24
   fi

@@ -10,9 +10,9 @@ const { spawnSync } = require('child_process');
 const config = require('../server');
 const { AppError, commandError, sendError } = require('../errors');
 
-const CUSTOM_MODS_DIR = '/home/steam/custom-mods';
+const CUSTOM_MODS_DIR = process.env.CUSTOM_MODS_DIR || '/home/steam/custom-mods';
 const GAME_MODS_DIR = path.join(config.GAME_DIR, 'Mods');
-const PREINSTALLED_MODS_DIR = '/home/steam/preinstalled-mods';
+const PREINSTALLED_MODS_DIR = process.env.PREINSTALLED_MODS_DIR || '/home/steam/preinstalled-mods';
 const METADATA_SUFFIX = '.panel-meta.json';
 const CLIENT_PACK_FILENAME = 'stardew-client-mods.zip';
 const CLIENT_PACK_DIR = path.join(config.DATA_DIR, 'client-packs');
@@ -20,6 +20,9 @@ const CLIENT_PACK_PATH = path.join(CLIENT_PACK_DIR, CLIENT_PACK_FILENAME);
 const CLIENT_PACK_METADATA_PATH = path.join(CLIENT_PACK_DIR, 'stardew-client-mods.json');
 const MOD_BACKUPS_DIR = path.join(config.DATA_DIR, 'mod-backups');
 const PUBLIC_MOD_MANIFEST_CACHE_MS = parseInt(process.env.PANEL_PUBLIC_MOD_MANIFEST_CACHE_MS || '120000', 10);
+const MOD_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const MOD_UPLOAD_MAX_MB = Math.round(MOD_UPLOAD_MAX_BYTES / 1024 / 1024);
+const MOD_ARCHIVE_EXTRACT_TIMEOUT_MS = parseInt(process.env.PANEL_MOD_EXTRACT_TIMEOUT_MS || '120000', 10);
 const CLIENT_REQUIRED_MOD_IDS = new Set([
   'ylty.SinglePlayerPauseReporter',
 ]);
@@ -57,6 +60,33 @@ function runCommand(command, args, options = {}) {
   }
 
   return result.stdout || '';
+}
+
+function extractZipArchive(zipPath, destDir) {
+  const args = ['-q', '-o', zipPath, '-d', destDir];
+  const result = spawnSync('unzip', args, {
+    encoding: 'utf-8',
+    timeout: MOD_ARCHIVE_EXTRACT_TIMEOUT_MS,
+  });
+
+  if (isSuccessful(result)) {
+    return;
+  }
+
+  const output = [
+    result && result.stderr,
+    result && result.stdout,
+    result && result.error && result.error.message,
+  ].filter(Boolean).join('\n');
+  const isWindowsPathSeparatorWarning = result &&
+    result.status === 1 &&
+    /appears to use backslashes as path separators/i.test(output);
+
+  if (isWindowsPathSeparatorWarning) {
+    return;
+  }
+
+  throw commandError('unzip', args, result);
 }
 
 function ensureDir(dirPath) {
@@ -349,6 +379,33 @@ function removeUploadTargets(filename) {
   }
 }
 
+function removeInstalledFolderTargets(folder) {
+  const safeFolder = path.basename(folder || '');
+  if (!safeFolder) {
+    return;
+  }
+
+  for (const metadata of getMatchingMetadata(safeFolder)) {
+    if (metadata.filename) {
+      removeUploadTargets(metadata.filename);
+    }
+    if (metadata._path) {
+      fs.rmSync(metadata._path, { force: true });
+    }
+  }
+
+  fs.rmSync(path.join(GAME_MODS_DIR, safeFolder), { recursive: true, force: true });
+  fs.rmSync(path.join(CUSTOM_MODS_DIR, `${safeFolder}.zip`), { force: true });
+  fs.rmSync(path.join(CUSTOM_MODS_DIR, safeFolder), { recursive: true, force: true });
+}
+
+function removeModImportConflicts(filename, folders) {
+  removeUploadTargets(filename);
+  for (const folder of folders) {
+    removeInstalledFolderTargets(folder);
+  }
+}
+
 function hasUploadTarget(filename) {
   const targets = getUploadTargets(filename);
   return [...targets.sourcePaths, ...targets.gamePaths].some(target => fs.existsSync(target));
@@ -378,32 +435,163 @@ function findManifestDirectories(rootDir, maxDepth = 3, depth = 0) {
   return found;
 }
 
-function installArchiveToGameMods(zipPath) {
-  ensureDir(GAME_MODS_DIR);
+function sanitizeInstallFolderName(value, fallback) {
+  const safeName = path.basename(String(value || '')).trim();
+  if (safeName && safeName !== '.' && safeName !== '..') {
+    return safeName;
+  }
 
+  const safeFallback = path.basename(String(fallback || 'uploaded-mod')).trim();
+  return safeFallback && safeFallback !== '.' && safeFallback !== '..'
+    ? safeFallback
+    : 'uploaded-mod';
+}
+
+function getArchiveBaseName(filename) {
+  return sanitizeInstallFolderName(path.basename(filename || '').replace(/\.zip$/i, ''), 'uploaded-mod');
+}
+
+function normalizeArchiveModEntries(manifestDirs, tempRoot, archiveBaseName) {
+  const tempRootPath = path.resolve(tempRoot);
+  const entries = manifestDirs.map(manifestDir => {
+    const resolvedManifestDir = path.resolve(manifestDir);
+    const rawFolderName = resolvedManifestDir === tempRootPath
+      ? archiveBaseName
+      : path.basename(manifestDir);
+
+    return {
+      manifestDir,
+      installedFolder: sanitizeInstallFolderName(rawFolderName, archiveBaseName),
+    };
+  });
+
+  const seenFolders = new Map();
+  const duplicateFolders = [];
+  for (const entry of entries) {
+    const key = entry.installedFolder.toLowerCase();
+    if (seenFolders.has(key)) {
+      duplicateFolders.push(entry.installedFolder);
+    }
+    seenFolders.set(key, entry.installedFolder);
+  }
+
+  if (duplicateFolders.length > 0) {
+    throw new AppError('Archive contains duplicate mod folder names', {
+      status: 400,
+      code: 'MOD_ARCHIVE_DUPLICATE_FOLDERS',
+      cause: `The zip archive contains more than one mod that would install to: ${[...new Set(duplicateFolders)].join(', ')}.`,
+      action: 'Rename the duplicated mod folders inside the zip, or upload those mods separately.',
+      metadata: {
+        duplicates: [...new Set(duplicateFolders)],
+        installedFolders: entries.map(entry => entry.installedFolder),
+      },
+    });
+  }
+
+  return entries;
+}
+
+function withExtractedModArchive(zipPath, archiveBaseName, handler) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'puppy-mod-'));
 
   try {
-    runCommand('unzip', ['-q', '-o', zipPath, '-d', tempRoot], { timeout: 30000 });
+    try {
+      extractZipArchive(zipPath, tempRoot);
+    } catch (error) {
+      if (error.code === 'COMMAND_NOT_FOUND') {
+        throw error;
+      }
 
-    const manifestDirs = findManifestDirectories(tempRoot);
-    const installedFolders = [];
-
-    for (const manifestDir of manifestDirs) {
-      const folderName = path.basename(manifestDir);
-      const destDir = path.join(GAME_MODS_DIR, folderName);
-      fs.rmSync(destDir, { recursive: true, force: true });
-      fs.cpSync(manifestDir, destDir, { recursive: true });
-      installedFolders.push(folderName);
+      throw new AppError('Cannot extract mod archive', {
+        status: 400,
+        code: 'MOD_ARCHIVE_EXTRACT_FAILED',
+        cause: error.cause || 'The uploaded file is not a readable zip archive.',
+        details: error.details || error.message,
+        action: 'Upload a valid .zip file exported from a SMAPI mod or mod pack.',
+      });
     }
 
-    return {
-      installedFolders,
-      hasManifest: installedFolders.length > 0,
-    };
+    const manifestDirs = findManifestDirectories(tempRoot);
+    const entries = normalizeArchiveModEntries(manifestDirs, tempRoot, archiveBaseName);
+    return handler({
+      tempRoot,
+      entries,
+      installedFolders: entries.map(entry => entry.installedFolder),
+      hasManifest: entries.length > 0,
+      bundle: entries.length > 1,
+    });
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+}
+
+function getProtectedModFolderConflicts(folders) {
+  const preinstalledFolders = getPreinstalledModFolders();
+  return folders.filter(folder => preinstalledFolders.has(folder));
+}
+
+function getInstalledFolderConflicts(folders) {
+  const conflicts = [];
+  const seen = new Set();
+
+  for (const folder of folders) {
+    const safeFolder = path.basename(folder || '');
+    if (!safeFolder || seen.has(safeFolder)) {
+      continue;
+    }
+
+    const targets = [
+      path.join(GAME_MODS_DIR, safeFolder),
+      path.join(CUSTOM_MODS_DIR, `${safeFolder}.zip`),
+      path.join(CUSTOM_MODS_DIR, safeFolder),
+    ];
+    const metadata = getMatchingMetadata(safeFolder);
+    if (metadata.length > 0 || targets.some(target => fs.existsSync(target))) {
+      conflicts.push(safeFolder);
+      seen.add(safeFolder);
+    }
+  }
+
+  return conflicts;
+}
+
+function getModImportConflicts(filename, installedFolders) {
+  const existingUpload = hasUploadTarget(filename);
+  const folderConflicts = getInstalledFolderConflicts(installedFolders);
+  return {
+    existingUpload,
+    folderConflicts,
+    hasConflict: existingUpload || folderConflicts.length > 0,
+  };
+}
+
+function installArchiveEntriesToGameMods(entries) {
+  ensureDir(GAME_MODS_DIR);
+
+  const installedFolders = [];
+
+  for (const entry of entries) {
+    const destDir = assertManagedChildPath(
+      GAME_MODS_DIR,
+      path.join(GAME_MODS_DIR, entry.installedFolder),
+      'GAME_MOD_INVALID_PATH'
+    );
+    fs.rmSync(destDir, { recursive: true, force: true });
+    fs.cpSync(entry.manifestDir, destDir, { recursive: true });
+    installedFolders.push(entry.installedFolder);
+  }
+
+  return {
+    installedFolders,
+    hasManifest: installedFolders.length > 0,
+    bundle: installedFolders.length > 1,
+  };
+}
+
+function installArchiveToGameMods(zipPath, archiveBaseName = getArchiveBaseName(zipPath)) {
+  return withExtractedModArchive(zipPath, archiveBaseName, extracted =>
+    installArchiveEntriesToGameMods(extracted.entries)
+  );
 }
 
 function resolveChildPath(rootDir, childName) {
@@ -1335,30 +1523,12 @@ function uploadMod(req, res) {
       });
     }
 
-    var destPath = path.join(CUSTOM_MODS_DIR, filename);
-    var metadataPath = getMetadataPath(filename.replace(/\.zip$/i, ''));
-    var existingUpload = hasUploadTarget(filename);
-
-    // Check if already exists
-    if (existingUpload && !overwrite) {
-      return sendError(res, req, new AppError('A mod with this filename already exists', {
-        status: 409,
-        code: 'MOD_ALREADY_EXISTS',
-        cause: 'The uploaded filename, metadata file, or previously installed folders already exist.',
-        action: 'Choose overwrite in the panel, rename the zip file, or delete the existing custom mod first.',
-        metadata: {
-          canOverwrite: true,
-          filename,
-        },
-      }));
-    }
-
     // Write file from base64
     var buffer = Buffer.from(data, 'base64');
 
-    // Size limit: 100MB
-    if (buffer.length > 100 * 1024 * 1024) {
-      return sendError(res, req, new AppError('File too large (max 100MB)', {
+    // Size limit: keep base64 uploads safe for 2C/2G servers.
+    if (buffer.length > MOD_UPLOAD_MAX_BYTES) {
+      return sendError(res, req, new AppError(`File too large (max ${MOD_UPLOAD_MAX_MB}MB)`, {
         status: 413,
         code: 'MOD_UPLOAD_TOO_LARGE',
         cause: 'The mod archive exceeds the panel upload limit.',
@@ -1366,62 +1536,121 @@ function uploadMod(req, res) {
       }));
     }
 
-    const preChangeBackup = createModBackup(existingUpload ? 'pre-overwrite' : 'pre-upload');
-    if (existingUpload) {
-      removeUploadTargets(filename);
-    }
-
-    fs.writeFileSync(destPath, buffer);
+    var archiveBaseName = getArchiveBaseName(filename);
+    var destPath = path.join(CUSTOM_MODS_DIR, filename);
+    var metadataPath = getMetadataPath(archiveBaseName);
+    var tempUploadPath = path.join(os.tmpdir(), `puppy-mod-upload-${process.pid}-${Date.now()}-${filename}`);
+    fs.writeFileSync(tempUploadPath, buffer);
 
     try {
-      const installResult = installArchiveToGameMods(destPath);
+      return withExtractedModArchive(tempUploadPath, archiveBaseName, (extracted) => {
+        const protectedConflicts = getProtectedModFolderConflicts(extracted.installedFolders);
+        if (protectedConflicts.length > 0) {
+          throw new AppError('Uploaded archive would overwrite built-in server mods', {
+            status: 403,
+            code: 'BUILT_IN_MOD_PROTECTED',
+            cause: `The archive contains folder(s) reserved for built-in server mods: ${protectedConflicts.join(', ')}.`,
+            action: 'Rename or remove those folders from the zip. Built-in server mods must be updated through the panel release, not by upload.',
+            metadata: {
+              protectedFolders: protectedConflicts,
+              installedFolders: extracted.installedFolders,
+            },
+          });
+        }
 
-      if (installResult.installedFolders.length > 0) {
-        fs.writeFileSync(metadataPath, JSON.stringify({
-          filename: filename,
-          installedFolders: installResult.installedFolders,
-          uploadedAt: new Date().toISOString(),
-          overwritten: existingUpload,
-        }, null, 2));
-      }
+        const conflicts = getModImportConflicts(filename, extracted.installedFolders);
+        if (conflicts.hasConflict && !overwrite) {
+          throw new AppError('One or more uploaded mods already exist', {
+            status: 409,
+            code: 'MOD_ALREADY_EXISTS',
+            cause: conflicts.folderConflicts.length > 0
+              ? `The archive would overwrite installed mod folder(s): ${conflicts.folderConflicts.join(', ')}.`
+              : 'The uploaded filename, metadata file, or previously installed folders already exist.',
+            action: 'Choose overwrite in the panel to create a backup and replace the existing uploaded mod(s), or rename/remove the conflicting mods first.',
+            metadata: {
+              canOverwrite: true,
+              filename,
+              existingFilename: conflicts.existingUpload,
+              conflicts: conflicts.folderConflicts,
+              installedFolders: extracted.installedFolders,
+              installedCount: extracted.installedFolders.length,
+              bundle: extracted.bundle,
+            },
+          });
+        }
 
-      const clientPack = safeRebuildClientPack('upload');
-      invalidatePublicModManifestCache();
-      res.json({
-        success: true,
-        message: installResult.hasManifest
-          ? 'Mod uploaded successfully. Restart the server to load the new mod.'
-          : 'Mod archive uploaded, but no manifest.json was found. Check the archive structure.',
-        filename: filename,
-        extracted: installResult.hasManifest,
-        hasManifest: installResult.hasManifest,
-        noManifest: !installResult.hasManifest,
-        autoInstallFailed: false,
-        needsRestart: true,
-        installedFolders: installResult.installedFolders,
-        overwritten: existingUpload,
-        backup: preChangeBackup,
-        clientPack,
+        const preChangeBackup = conflicts.hasConflict
+          ? createModBackup('pre-overwrite')
+          : null;
+        if (conflicts.hasConflict || overwrite) {
+          removeModImportConflicts(filename, conflicts.folderConflicts);
+        }
+
+        fs.copyFileSync(tempUploadPath, destPath);
+
+        try {
+          const installResult = installArchiveEntriesToGameMods(extracted.entries);
+
+          if (installResult.installedFolders.length > 0) {
+            fs.writeFileSync(metadataPath, JSON.stringify({
+              filename: filename,
+              installedFolders: installResult.installedFolders,
+              uploadedAt: new Date().toISOString(),
+              overwritten: conflicts.hasConflict,
+              bundle: installResult.bundle,
+              importedModCount: installResult.installedFolders.length,
+              size: buffer.length,
+            }, null, 2));
+          }
+
+          const clientPack = safeRebuildClientPack('upload');
+          invalidatePublicModManifestCache();
+          return res.json({
+            success: true,
+            message: installResult.hasManifest
+              ? 'Mod archive uploaded and installed. Restart the server to load it.'
+              : 'Mod archive uploaded, but no manifest.json was found. Check the archive structure.',
+            filename: filename,
+            extracted: installResult.hasManifest,
+            hasManifest: installResult.hasManifest,
+            noManifest: !installResult.hasManifest,
+            autoInstallFailed: false,
+            needsRestart: true,
+            installedFolders: installResult.installedFolders,
+            installedCount: installResult.installedFolders.length,
+            bundle: installResult.bundle,
+            overwritten: conflicts.hasConflict,
+            conflicts: conflicts.folderConflicts,
+            backup: preChangeBackup,
+            clientPack,
+          });
+        } catch (e) {
+          fs.rmSync(metadataPath, { force: true });
+          const clientPack = safeRebuildClientPack('upload-install-failed');
+          invalidatePublicModManifestCache();
+          return res.json({
+            success: true,
+            message: 'Mod archive uploaded, but automatic installation failed. Restart may still install it from the archive.',
+            filename: filename,
+            extracted: false,
+            hasManifest: false,
+            noManifest: false,
+            autoInstallFailed: true,
+            installError: e.cause || e.message,
+            installDetails: e.details || '',
+            needsRestart: true,
+            installedFolders: extracted.installedFolders,
+            installedCount: extracted.installedFolders.length,
+            bundle: extracted.bundle,
+            overwritten: conflicts.hasConflict,
+            conflicts: conflicts.folderConflicts,
+            backup: preChangeBackup,
+            clientPack,
+          });
+        }
       });
-    } catch (e) {
-      fs.rmSync(metadataPath, { force: true });
-      const clientPack = safeRebuildClientPack('upload-install-failed');
-      invalidatePublicModManifestCache();
-      res.json({
-        success: true,
-        message: 'Mod archive uploaded, but automatic installation failed. Restart may still install it from the archive.',
-        filename: filename,
-        extracted: false,
-        hasManifest: false,
-        noManifest: false,
-        autoInstallFailed: true,
-        installError: e.cause || e.message,
-        installDetails: e.details || '',
-        needsRestart: true,
-        overwritten: existingUpload,
-        backup: preChangeBackup,
-        clientPack,
-      });
+    } finally {
+      fs.rmSync(tempUploadPath, { force: true });
     }
   } catch (e) {
     return sendError(res, req, e, {

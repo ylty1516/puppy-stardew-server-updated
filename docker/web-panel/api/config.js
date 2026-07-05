@@ -52,6 +52,7 @@ const CONFIG_SCHEMA = {
     { key: 'PANEL_LOG_DEFAULT_LINES', label: 'Default Log Lines', type: 'number', default: '200', min: 50, descriptionKey: 'config.help.PANEL_LOG_DEFAULT_LINES' },
     { key: 'PANEL_LOG_MAX_LINES', label: 'Max Log Lines', type: 'number', default: '600', min: 100, descriptionKey: 'config.help.PANEL_LOG_MAX_LINES' },
     { key: 'PANEL_PUBLIC_MOD_MANIFEST_CACHE_MS', label: 'Public Mod Cache (ms)', type: 'number', default: '120000', min: 30000, descriptionKey: 'config.help.PANEL_PUBLIC_MOD_MANIFEST_CACHE_MS' },
+    { key: 'PANEL_MOD_EXTRACT_TIMEOUT_MS', label: 'Mod Extract Timeout (ms)', type: 'number', default: '120000', min: 30000, descriptionKey: 'config.help.PANEL_MOD_EXTRACT_TIMEOUT_MS' },
     { key: 'PANEL_HEALTH_COMMAND_TIMEOUT_MS', label: 'Health Command Timeout (ms)', type: 'number', default: '1500', min: 500, descriptionKey: 'config.help.PANEL_COMMAND_TIMEOUT_MS' },
     { key: 'PANEL_COMMAND_TIMEOUT_MS', label: 'Panel Command Timeout (ms)', type: 'number', default: '1500', min: 500, descriptionKey: 'config.help.PANEL_COMMAND_TIMEOUT_MS' },
   ],

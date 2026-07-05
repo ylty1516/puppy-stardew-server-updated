@@ -44,6 +44,7 @@ const BACKUP_STATUS_POLL_MS = 2000;
 const CONTAINER_RECONNECT_POLL_MS = 2000;
 const PANEL_UPDATE_POLL_MS = 3000;
 const FACTORY_RESET_POLL_MS = 3000;
+const MOD_UPLOAD_MAX_MB = 100;
 
 function detectTheme() {
   const saved = localStorage.getItem('panel_theme');
@@ -196,11 +197,15 @@ const translations = {
     'mods.confirmClearMismatch': '未输入 DELETE，已取消清空上传 Mod。',
     'mods.clearCustomOk': '上传 Mod 已清空。重启服务器后完全生效。',
     'mods.clearCustomEmpty': '当前没有上传 Mod 需要清理。',
-    'mods.uploadHint': '选择 .zip 模组文件', 'mods.uploading': '上传中...',
+    'mods.uploadHint': '选择 .zip 模组文件或多个 Mod 组合包', 'mods.uploading': '上传中...',
+    'mods.uploadTooLarge': '文件过大（最大 {max}MB）',
     'mods.overwriting': '正在覆盖旧模组...',
-    'mods.confirmOverwrite': '已存在同名模组 {name}。是否先自动备份并覆盖旧模组？',
+    'mods.confirmOverwrite': '已存在同名或同文件夹模组 {name}。是否先自动备份并覆盖旧模组？',
+    'mods.confirmOverwriteConflicts': '压缩包里的这些 Mod 已存在：{names}。是否先自动备份并覆盖？',
     'mods.uploadInstalled': '模组已上传并安装到游戏目录。重启服务器后会加载新模组。',
     'mods.uploadReplaced': '同名旧模组已备份并覆盖。重启服务器后会加载新版本。',
+    'mods.uploadBundleInstalled': '组合包已导入 {count} 个 Mod 并安装到游戏目录。重启服务器后会加载。',
+    'mods.uploadBundleReplaced': '组合包已备份并覆盖旧 Mod，共导入 {count} 个 Mod。重启服务器后会加载。',
     'mods.uploadNoManifest': '模组压缩包已上传，但未找到 manifest.json，请检查压缩包结构。',
     'mods.uploadFallback': '模组压缩包已上传，但自动安装失败。重启后仍会尝试从压缩包安装。',
     'mods.deleteNeedsRestart': '模组已删除。重启服务器后将完全卸载。',
@@ -250,6 +255,7 @@ const translations = {
     'config.help.PANEL_LOG_DEFAULT_LINES': '日志页默认显示行数。',
     'config.help.PANEL_LOG_MAX_LINES': '日志页允许显示的最大行数。',
     'config.help.PANEL_PUBLIC_MOD_MANIFEST_CACHE_MS': '玩家 Mod 公共清单缓存时间。数值越大，玩家下载页越省资源。',
+    'config.help.PANEL_MOD_EXTRACT_TIMEOUT_MS': '上传 Mod 组合包时，面板等待解压完成的最长时间。服务器慢或组合包大时可以适当调高。',
     'config.help.PANEL_COMMAND_TIMEOUT_MS': '面板执行轻量诊断命令的超时时间。小服务器建议保持较低。',
     'recommend.title': '服务器配置推荐',
     'recommend.refresh': '重新检测',
@@ -504,11 +510,15 @@ const translations = {
     'mods.confirmClearMismatch': 'DELETE was not entered, so uploaded mods were not cleared.',
     'mods.clearCustomOk': 'Uploaded mods cleared. Restart the server to fully apply.',
     'mods.clearCustomEmpty': 'There are no uploaded mods to clear.',
-    'mods.uploadHint': 'Select a .zip mod file', 'mods.uploading': 'Uploading...',
+    'mods.uploadHint': 'Select a .zip mod file or multi-mod pack', 'mods.uploading': 'Uploading...',
+    'mods.uploadTooLarge': 'File too large (max {max}MB)',
     'mods.overwriting': 'Overwriting old mod...',
-    'mods.confirmOverwrite': 'A mod named {name} already exists. Back it up and overwrite it now?',
+    'mods.confirmOverwrite': 'A mod with this name or folder already exists: {name}. Back it up and overwrite it now?',
+    'mods.confirmOverwriteConflicts': 'These mods in the archive already exist: {names}. Back them up and overwrite them now?',
     'mods.uploadInstalled': 'Mod uploaded and installed into the game Mods directory. Restart the server to load it.',
     'mods.uploadReplaced': 'The old mod was backed up and overwritten. Restart the server to load the new version.',
+    'mods.uploadBundleInstalled': 'Mod pack imported {count} mods into the game Mods directory. Restart the server to load them.',
+    'mods.uploadBundleReplaced': 'Old mods were backed up and replaced. Imported {count} mods. Restart the server to load them.',
     'mods.uploadNoManifest': 'Mod archive uploaded, but no manifest.json was found. Check the archive structure.',
     'mods.uploadFallback': 'Mod archive uploaded, but automatic installation failed. Restart may still install it from the archive.',
     'mods.deleteNeedsRestart': 'Mod deleted. Restart the server to fully unload it.',
@@ -558,6 +568,7 @@ const translations = {
     'config.help.PANEL_LOG_DEFAULT_LINES': 'Default number of lines shown on the logs page.',
     'config.help.PANEL_LOG_MAX_LINES': 'Maximum number of lines allowed on the logs page.',
     'config.help.PANEL_PUBLIC_MOD_MANIFEST_CACHE_MS': 'Cache time for the public player mod manifest. Higher values reduce load on the player download page.',
+    'config.help.PANEL_MOD_EXTRACT_TIMEOUT_MS': 'Maximum time the panel waits while extracting an uploaded mod pack. Raise this for slow servers or large packs.',
     'config.help.PANEL_COMMAND_TIMEOUT_MS': 'Timeout for lightweight diagnostic commands. Keep it low on small servers.',
     'recommend.title': 'Server Configuration Recommendation',
     'recommend.refresh': 'Detect Again',
@@ -2900,8 +2911,8 @@ async function handleModUpload(input) {
     return;
   }
 
-  if (file.size > 100 * 1024 * 1024) {
-    showToast('File too large (max 100MB)', 'error');
+  if (file.size > MOD_UPLOAD_MAX_MB * 1024 * 1024) {
+    showToast(tf('mods.uploadTooLarge', { max: MOD_UPLOAD_MAX_MB }), 'error');
     return;
   }
 
@@ -2913,7 +2924,7 @@ async function handleModUpload(input) {
     var data = await uploadModArchive(file.name, base64, false);
 
     if (isOverwriteableModUploadError(data)) {
-      const overwrite = confirm(tf('mods.confirmOverwrite', { name: file.name }));
+      const overwrite = confirm(getModOverwriteConfirmMessage(data, file.name));
       if (overwrite) {
         document.getElementById('modUploadStatus').textContent = t('mods.overwriting');
         data = await uploadModArchive(file.name, base64, true);
@@ -2949,6 +2960,19 @@ function isOverwriteableModUploadError(data) {
     data.code === 'MOD_ALREADY_EXISTS' &&
     data.metadata &&
     data.metadata.canOverwrite === true;
+}
+
+function getModOverwriteConfirmMessage(data, filename) {
+  const conflicts = Array.isArray(data?.metadata?.conflicts)
+    ? data.metadata.conflicts.filter(Boolean)
+    : [];
+
+  if (conflicts.length > 0) {
+    const names = conflicts.slice(0, 8).join(', ') + (conflicts.length > 8 ? ` +${conflicts.length - 8}` : '');
+    return tf('mods.confirmOverwriteConflicts', { names });
+  }
+
+  return tf('mods.confirmOverwrite', { name: filename });
 }
 
 async function deleteMod(folder, name) {
@@ -3041,6 +3065,13 @@ async function downloadClientModPack() {
 function getModUploadToast(data) {
   if (data && data.success) {
     var clientPackText = appendSentence(getModBackupResultText(data.backup), getClientPackResultText(data.clientPack));
+    var installedCount = data.installedCount || (Array.isArray(data.installedFolders) ? data.installedFolders.length : 0);
+    if (data.bundle && data.hasManifest) {
+      var bundleText = data.overwritten
+        ? tf('mods.uploadBundleReplaced', { count: installedCount })
+        : tf('mods.uploadBundleInstalled', { count: installedCount });
+      return appendSentence(bundleText, clientPackText);
+    }
     if (data.overwritten && data.hasManifest) {
       return appendSentence(t('mods.uploadReplaced'), clientPackText);
     }

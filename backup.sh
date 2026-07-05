@@ -81,7 +81,15 @@ create_backup() {
     print_info "Creating backup: $BACKUP_FILE"
 
     # Create compressed archive
-    tar -czf "$BACKUP_DIR/$BACKUP_FILE" -C data saves
+    tar --warning=no-file-changed \
+        --exclude='saves/ErrorLogs' \
+        --exclude='saves/ErrorLogs/*' \
+        --exclude='saves/*/ErrorLogs' \
+        --exclude='saves/*/ErrorLogs/*' \
+        --exclude='saves/SMAPI-latest.txt' \
+        --exclude='saves/*/SMAPI-latest.txt' \
+        --exclude='saves/*/*/SMAPI-latest.txt' \
+        -czf "$BACKUP_DIR/$BACKUP_FILE" -C data saves
 
     # Get backup size
     backup_size=$(du -h "$BACKUP_DIR/$BACKUP_FILE" | cut -f1)

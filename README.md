@@ -47,17 +47,19 @@
 
 ![模组管理：上传、下载与玩家 Mod 包](screenshots/panel/mods-management.png)
 
-模组页用于查看内置 Mod 和自定义 Mod，支持上传 Mod、删除自定义 Mod、刷新 Mod 列表、生成玩家本地需要安装的 Mod 下载包，并在每个需要玩家安装的 Mod 后面提供单独下载按钮。页面会区分服务器专用 Mod 和玩家需要安装的 Mod，避免玩家误装服务端组件。
+模组页用于查看内置 Mod 和自定义 Mod，支持上传单个 Mod zip 或多个 Mod 组合包、删除自定义 Mod、刷新 Mod 列表、生成玩家本地需要安装的 Mod 下载包，并在每个需要玩家安装的 Mod 后面提供单独下载按钮。页面会区分服务器专用 Mod 和玩家需要安装的 Mod，避免玩家误装服务端组件。
+
+组合包上传后，面板会先在服务器临时目录解压，扫描压缩包内每个 `manifest.json`，再把多个 Mod 文件夹安装到游戏 `Mods` 目录。若组合包中的某些 Mod 已存在，面板会列出冲突文件夹，确认覆盖后先创建安全备份再替换。
 
 ### Mod 备份与回滚：降低误删和更新风险
 
 ![Mod 备份与回滚：降低误删和更新风险](screenshots/panel/mod-backups-rollback.png)
 
-Mod 备份区会在上传或删除 Mod 前自动创建快照，管理员可以下载备份或一键回滚。这样即使某个 Mod 更新后导致服务器无法进入，也可以快速恢复到之前的可用状态。
+Mod 备份区会在覆盖、删除、清空或回滚 Mod 前自动创建快照，管理员可以下载备份或一键回滚。新上传且没有冲突的 Mod 不会额外复制整套 Mod 目录，减少 2 核 2G 服务器的磁盘和 CPU 压力；如果某个 Mod 更新后导致服务器无法进入，可以使用覆盖前或删除前的备份快速恢复。
 
 ## 玩家 Mod 包
 
-如果你在面板里上传了内容类或客户端也需要安装的 SMAPI Mod，玩家本地没有对应 Mod 时，可能会出现无法进入、内容缺失、报错或多人状态不一致的问题。面板上传或删除 Mod 后会自动整合玩家下载包，并生成 `stardew-client-mods.zip`。
+如果你在面板里上传了内容类或客户端也需要安装的 SMAPI Mod，玩家本地没有对应 Mod 时，可能会出现无法进入、内容缺失、报错或多人状态不一致的问题。面板上传单个 Mod 或多个 Mod 组合包后，会自动整合玩家下载包，并生成 `stardew-client-mods.zip`。
 
 内置的服务器控制 Mod（例如 AutoHideHost、ServerAutoLoad、Always On Server、Skill Level Guard）会被自动排除，不需要玩家单独安装。
 
@@ -77,7 +79,7 @@ http://你的面板地址:18642/player-mods
 
 ## Mod 备份、回滚与诊断
 
-面板在上传或删除 Mod 前会自动创建一份 Mod 快照，包含上传源目录和游戏 `Mods` 目录。管理员可以在“模组”页面查看、下载或回滚这些备份。回滚前面板会再次创建一份 `pre-rollback` 安全备份，避免误操作后没有退路。
+面板在覆盖、删除、清空或回滚 Mod 前会自动创建一份 Mod 快照，包含上传源目录和游戏 `Mods` 目录。管理员可以在“模组”页面查看、下载或回滚这些备份。回滚前面板会再次创建一份 `pre-rollback` 安全备份，避免误操作后没有退路。
 
 “诊断”页面会检查 `zip`、`unzip`、`tar`、`gzip`、目录权限、SMAPI 状态桥、联机可加入状态和最近日志诊断。遇到崩溃时可以点击“导出崩溃报告”，报告会打包健康检查、Mod 校验清单、SMAPI 日志、状态桥和暂停控制文件，方便排查问题。
 
@@ -346,7 +348,7 @@ docker compose up -d --build
 (curl -fsSL https://gh.sixyin.com/https://raw.githubusercontent.com/ylty1516/puppy-stardew-server-updated/main/update.sh || curl -fsSL https://raw.githubusercontent.com/ylty1516/puppy-stardew-server-updated/main/update.sh) | bash
 ```
 
-这条命令会下载最新版更新脚本，自动备份 `.env`、`docker-compose.yml`、启动偏好和存档，然后拉取最新代码并重建 Docker 服务。`data/`、`secrets/` 和玩家上传内容会保留，不会当成全新安装直接清空。
+这条命令会下载最新版更新脚本，自动备份 `.env`、`docker-compose.yml`、启动偏好和存档，然后拉取最新代码并重建 Docker 服务。存档备份会排除运行时 `ErrorLogs/SMAPI-latest.txt`，避免正在写入的 SMAPI 日志把更新误判为失败；`data/`、`secrets/` 和玩家上传内容会保留，不会当成全新安装直接清空。
 
 如果项目目录不在默认位置，先进入项目目录再执行：
 
@@ -366,7 +368,7 @@ cd /你的项目目录 && (curl -fsSL https://gh.sixyin.com/https://raw.githubus
 
 ## 2核2G 小服务器优化
 
-这个项目运行的是真实 Stardew Valley + SMAPI 客户端，所以主要资源占用来自游戏本体、Xvfb/VNC、Steam 和已安装 Mod。面板这边已经按 2核2G 做了轻量默认值：状态接口 5 秒缓存、在线人数仍按 20 秒刷新、世界状态 60 秒缓存、默认只做 Mod manifest 级指纹、日志只读尾部、Mod 公共清单 2 分钟缓存、健康检查命令 1.5 秒超时，并限制内存里的历史记录长度。
+这个项目运行的是真实 Stardew Valley + SMAPI 客户端，所以主要资源占用来自游戏本体、Xvfb/VNC、Steam 和已安装 Mod。面板这边已经按 2核2G 做了轻量默认值：状态接口 5 秒缓存、在线人数仍按 20 秒刷新、世界状态 60 秒缓存、默认只做 Mod manifest 级指纹、日志只读尾部、Mod 公共清单 2 分钟缓存、Mod 组合包解压 120 秒超时、健康检查命令 1.5 秒超时，并限制内存里的历史记录长度。
 
 Web 面板的 `配置` 页面新增 `服务器配置推荐` 卡片。它会手动检测当前容器可用 CPU、内存、数据盘剩余空间和已安装 Mod 压力，并按 `极低配置`、`2核2G 标准档`、`2核2G 大型Mod压力档`、`4核4G`、`高配置档` 给出推荐。
 

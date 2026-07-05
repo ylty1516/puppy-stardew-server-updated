@@ -123,8 +123,19 @@ create_backup() {
   done
 
   if [ "$SKIP_SAVE_BACKUP" != "true" ] && [ -d "$PROJECT_DIR/data/saves" ]; then
-    if tar -czf "$BACKUP_DIR/saves.tar.gz" -C "$PROJECT_DIR" data/saves 2>/dev/null; then
+    if tar --warning=no-file-changed \
+      --exclude='data/saves/ErrorLogs' \
+      --exclude='data/saves/ErrorLogs/*' \
+      --exclude='data/saves/*/ErrorLogs' \
+      --exclude='data/saves/*/ErrorLogs/*' \
+      --exclude='data/saves/SMAPI-latest.txt' \
+      --exclude='data/saves/*/SMAPI-latest.txt' \
+      --exclude='data/saves/*/*/SMAPI-latest.txt' \
+      -czf "$BACKUP_DIR/saves.tar.gz" -C "$PROJECT_DIR" data/saves 2>/dev/null; then
       info "已备份存档到 $BACKUP_DIR/saves.tar.gz"
+      printf '%s\n' \
+        "存档备份已排除运行时日志目录 data/saves/ErrorLogs，避免正在写入的 SMAPI-latest.txt 阻塞更新。" \
+        > "$BACKUP_DIR/save-backup-notes.txt"
     else
       die "存档备份失败，为保证可恢复性，已停止更新。如确认跳过存档备份，设置 PUPPY_UPDATE_SKIP_SAVE_BACKUP=true"
     fi
